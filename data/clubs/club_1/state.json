@@ -1,5 +1,5 @@
 {
-  "round": 2,
+  "round": 10,
   "pending": {
     "Toastmasters de la noche": {
       "candidate": "5215634948177",
@@ -17,7 +17,7 @@
       "accepted": false
     },
     "Evaluador del tiempo": {
-      "candidate": "5219211787763",
+      "candidate": "5219212671618",
       "declined_by": [],
       "accepted": false
     }
@@ -38,5 +38,11 @@
     ]
   },
   "last_summary": null,
-  "canceled": false
+  "canceled": false,
+  "session_theme": {
+    "topic": "Prueba",
+    "waid": "5215634948177",
+    "nombre": "Roger",
+    "round": 4
+  }
 }

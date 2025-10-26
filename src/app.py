@@ -292,34 +292,46 @@ def _build_menu_text(title: str, options: List[str]) -> str:
 
 def send_menu_with_quick_replies(to_e164_no_plus: str, title: str, options: List[str]) -> dict:
     menu_text = _build_menu_text(title, options)
+    # Si no hay opciones, solo texto
+    if not options:
+        return send_text(to_e164_no_plus, menu_text)
 
-    if options:
-        payload = {
-            "type": "quick_reply",
-            "content": {"type": "text", "text": title},
-            "options": [],
-        }
-        for idx, option in enumerate(options, 1):
-            opt_text = option.strip()
-            m = re.match(r"\s*(\d+)", opt_text)
-            postback = m.group(1) if m else str(idx)
-            payload["options"].append({"type": "text", "title": opt_text, "postbackText": postback})
+    payload = {
+        "type": "quick_reply",
+        "content": {"type": "text", "text": title},
+        "options": [],
+    }
+    for idx, option in enumerate(options, 1):
+        opt_text = option.strip()
+        m = re.match(r"\s*(\d+)", opt_text)
+        postback = m.group(1) if m else str(idx)
+        payload["options"].append({
+            "type": "text",
+            "title": opt_text,
+            "postbackText": postback,  # lo que usamos idealmente
+            "id": postback,            # algunos payloads devuelven 'id'
+            "postback": postback,      # otros 'postback'
+            "payload": postback,       # otros 'payload'
+        })
 
-        data = {
-            "channel": "whatsapp",
-            "source": CFG.source,
-            "destination": to_e164_no_plus,
-            "message": json.dumps(payload, ensure_ascii=False),
-            "src.name": CFG.app_name,
-        }
-        url = "https://api.gupshup.io/wa/api/v1/msg"
-        try:
-            resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
-            if not resp.ok:
-                log.warning("Gupshup quick replies %s: %s", resp.status_code, resp.text)
-        except RequestException:
-            log.exception("Error al enviar quick replies a Gupshup")
+    data = {
+        "channel": "whatsapp",
+        "source": CFG.source,
+        "destination": to_e164_no_plus,
+        "message": json.dumps(payload, ensure_ascii=False),
+        "src.name": CFG.app_name,
+    }
+    url = "https://api.gupshup.io/wa/api/v1/msg"
+    try:
+        resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
+        # Éxito → NO envíes el menú de texto
+        if resp.ok:
+            return resp.json()
+        log.warning("Gupshup quick replies %s: %s", resp.status_code, resp.text)
+    except RequestException:
+        log.exception("Error al enviar quick replies a Gupshup")
 
+    # Fallback: si falló lo interactivo, envía el menú enumerado en texto
     return send_text(to_e164_no_plus, menu_text)
 
 
@@ -715,8 +727,9 @@ def render_root_menu(waid: str) -> str:
 
 
 def send_root_menu(waid: str) -> dict:
+    # Enviar SIEMPRE en texto (fiable en sandbox)
     title, options = _root_menu_parts(waid)
-    return send_menu_with_quick_replies(waid, title, options)
+    return send_text(waid, _build_menu_text(title, options))    
 
 
 def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[str]]:
@@ -735,7 +748,7 @@ def render_member_menu(ctx: Ctx) -> str:
 
 def send_member_menu(ctx: Ctx, waid: str) -> dict:
     title, options = _member_menu_parts(ctx)
-    return send_menu_with_quick_replies(waid, title, options)
+    return send_text(waid, _build_menu_text(title, options))
 
 def render_member_club_picker(mclubs: List[str]) -> str:
     lines = ["👤 Elige club para tu menú de miembro (envía solo el número):"]
@@ -773,7 +786,7 @@ def render_admin_menu(ctx: Ctx) -> str:
 
 def send_admin_menu(ctx: Ctx, waid: str) -> dict:
     title, options = _admin_menu_parts(ctx)
-    return send_menu_with_quick_replies(waid, title, options)
+    return send_text(waid, _build_menu_text(title, options))
 
 
 def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[str]]:
@@ -881,40 +894,61 @@ def has_pending_invite(ctx: Ctx, waid: str) -> Optional[str]:
 
 def _extract_incoming_text(msg: dict) -> str:
     t = (msg.get("type") or "").lower()
+
+    # Texto plano
     if t == "text":
-        return (msg.get("text") or {}).get("body", "") or ""
+        body = (msg.get("text") or {}).get("body")
+        return body.strip() if isinstance(body, str) else ""
 
-    candidates = []
-    candidates.append(msg.get("postbackText"))
-    candidates.append(msg.get("postback"))
-    candidates.append(msg.get("payload"))
-    candidates.append(msg.get("text"))
-    candidates.append(msg.get("title"))
-
-    for k in ("reply", "button", "interactive", "list"):
-        obj = msg.get(k) or {}
-        if isinstance(obj, dict):
-            candidates.append(
-                obj.get("postbackText")
-                or obj.get("postback")
-                or obj.get("payload")
-                or obj.get("text")
-                or obj.get("title")
+    # Quick replies / reply buttons (formato Gupshup)
+    if t in ("button", "reply", "quick_reply"):
+        container = msg.get("reply") or msg.get("button") or {}
+        # ⬇️ NUEVO: si viene como string JSON, parsearlo
+        if isinstance(container, str):
+            try:
+                container = json.loads(container)
+            except Exception:
+                # a veces llega el título directo como string
+                return container.strip()
+        if isinstance(container, dict):
+            v = (
+                container.get("postbackText")
+                or container.get("payload")     # <- común en Gupshup
+                or container.get("postback")
+                or container.get("id")
+                or container.get("title")
+                or container.get("text")        # "1) ✅ Aceptar"
             )
-            if "reply" in obj and isinstance(obj["reply"], dict):
-                r = obj["reply"]
-                candidates.append(
-                    r.get("postbackText")
-                    or r.get("postback")
-                    or r.get("payload")
-                    or r.get("id")
-                    or r.get("title")
-                )
+            return v.strip() if isinstance(v, str) else ""
+        return ""
 
-    for v in candidates:
-        if isinstance(v, str) and v.strip():
-            return v.strip()
+    # Botones/listas "interactive" nativos de WhatsApp (reenviados por Gupshup)
+    if t == "interactive":
+        inter = msg.get("interactive") or {}
+        if isinstance(inter, dict):
+            br = inter.get("button_reply") or inter.get("reply")
+            if isinstance(br, dict):
+                v = br.get("id") or br.get("postbackText") or br.get("title") or br.get("text")
+                return v.strip() if isinstance(v, str) else ""
+            lr = inter.get("list_reply")
+            if isinstance(lr, dict):
+                v = lr.get("id") or lr.get("postbackText") or lr.get("title") or lr.get("text")
+                return v.strip() if isinstance(v, str) else ""
+        return ""
+
     return ""
+
+
+def _is_interactive_reply(msg: dict) -> bool:
+    """
+    True solo si el mensaje NO es texto plano y proviene de un botón/lista/quick_reply.
+    """
+    t = (msg.get("type") or "").lower()
+    if t in ("button", "reply", "quick_reply", "interactive"):
+        return True
+    # Algunas pasarelas anidan detalles dentro de "interactive"
+    inter = msg.get("interactive")
+    return isinstance(inter, dict)
 
 
 @app.route("/webhook", methods=["POST"])
@@ -928,6 +962,11 @@ def webhook_post():
         )
         for msg in value.get("messages", []):
             waid = msg.get("from", "")
+            # Ignora mensajes originados por el propio número de Gupshup (evita ecos/auto-activaciones)
+            if str(waid) == str(CFG.source) or not waid:
+                continue
+            msg_type = (msg.get("type") or "").lower()
+            is_interactive = _is_interactive_reply(msg)
             body_raw = _extract_incoming_text(msg)
             if not body_raw:
                 continue
@@ -937,6 +976,7 @@ def webhook_post():
 
             # 0) Identificación inicial
             is_number = re.fullmatch(r"\d{1,3}", body) is not None
+            log.debug("tipo=%s interactive=%s awaiting=%s mode=%s", msg_type, is_interactive, s.get("awaiting"), s.get("mode"))
 
             if not s.get("club"):
                 mclubs = member_clubs(waid)
@@ -955,16 +995,26 @@ def webhook_post():
             # PRIORIDAD 2: Flujos awaiting (SIEMPRE antes de menús)
             awaiting = s.get("awaiting")
 
-            # --- Flujo de invitación a rol (solo 1/2). Cualquier otra cosa re-muestra el prompt.
+            # --- Flujo de invitación a rol (solo cuando hay interacción real) -------------
             if awaiting == "invite_decision":
-                if body == "1":
+                # Permite: botón quick-reply/lista o palabras claras.
+                # Permite: tap de botón (no texto) o palabras claras.
+                choice = None
+                m = re.match(r"^\s*(\d+)", body)  # body ya viene normalizado (ascii+lower)
+                if m:
+                    choice = m.group(1)
+
+                wants_accept = (choice == "1) ✅ Aceptar") or body in ("1", "acepto", "accept", "si", "sí", "ok")
+                wants_reject = (choice == "2) ❌ Rechazar") or body in ("2", "rechazo", "reject", "no", "cancelar", "cancelo")
+
+
+                if wants_accept:
                     buffer = s.get("buffer", {})
                     club_ctx = _CTX[buffer["club"]]
                     role_name = buffer["role"]
                     accept_msg = handle_accept(club_ctx, waid)
                     send_text(waid, accept_msg)
 
-                    # Subflujos posteriores según rol (mantén exactamente los mismos emojis/estilo)
                     role_norm = role_name.lower()
                     st_now = club_ctx.state_store.load()
                     if "evaluador gramatical" in role_norm:
@@ -986,7 +1036,7 @@ def webhook_post():
                         send_root_menu(waid)
                     return jsonify({"status": "ok"})
 
-                elif body == "2":
+                if wants_reject:
                     buffer = s.get("buffer", {})
                     club_ctx = _CTX[buffer["club"]]
                     reject_msg = handle_reject(club_ctx, waid)
@@ -995,13 +1045,17 @@ def webhook_post():
                     send_root_menu(waid)
                     return jsonify({"status": "ok"})
 
-                else:
+                # Si el usuario escribió un número por otro menú (texto plano) NO consumimos aquí.
+                # Solo re-mostramos el prompt si el intento fue interactivo pero inválido.
+                if is_interactive:
                     buffer = s.get("buffer", {})
-                    club_ctx = _CTX[buffer["club"]]
-                    send_text(waid, "❗Opción inválida. Responde 1 (Aceptar) o 2 (Rechazar).")
-                    title, opts = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
-                    send_menu_with_quick_replies(waid, title, opts)
+                    club_ctx = _CTX.get(buffer.get("club"))
+                    if club_ctx:
+                        send_text(waid, "❗Opción inválida. Usa los botones: 1 Aceptar / 2 Rechazar.")
+                        title, opts = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
+                        send_menu_with_quick_replies(waid, title, opts)
                     return jsonify({"status": "ok"})
+                # Si no es interactivo, dejamos que el router de menús siga su curso.
 
             # Agregar miembro
             if awaiting == "admin_add_member" and s.get("mode") == "admin" and ctx:
