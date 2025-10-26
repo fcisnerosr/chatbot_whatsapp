@@ -280,6 +280,49 @@ def broadcast_text(numbers: Set[str] | List[str] | Tuple[str, ...], text: str) -
     return {"ok": ok, "fail": fail}
 
 
+def _build_menu_text(title: str, options: List[str]) -> str:
+    title_clean = title.rstrip("\n")
+    option_lines = [opt.rstrip("\n") for opt in options]
+    if title_clean and option_lines:
+        return title_clean + "\n" + "\n".join(option_lines)
+    if title_clean:
+        return title_clean
+    return "\n".join(option_lines)
+
+
+def send_menu_with_quick_replies(to_e164_no_plus: str, title: str, options: List[str]) -> dict:
+    menu_text = _build_menu_text(title, options)
+
+    if options:
+        payload = {
+            "type": "quick_reply",
+            "content": {"type": "text", "text": title},
+            "options": [],
+        }
+        for idx, option in enumerate(options, 1):
+            opt_text = option.strip()
+            m = re.match(r"\s*(\d+)", opt_text)
+            postback = m.group(1) if m else str(idx)
+            payload["options"].append({"type": "text", "title": opt_text, "postbackText": postback})
+
+        data = {
+            "channel": "whatsapp",
+            "source": CFG.source,
+            "destination": to_e164_no_plus,
+            "message": json.dumps(payload, ensure_ascii=False),
+            "src.name": CFG.app_name,
+        }
+        url = "https://api.gupshup.io/wa/api/v1/msg"
+        try:
+            resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
+            if not resp.ok:
+                log.warning("Gupshup quick replies %s: %s", resp.status_code, resp.text)
+        except RequestException:
+            log.exception("Error al enviar quick replies a Gupshup")
+
+    return send_text(to_e164_no_plus, menu_text)
+
+
 def pretty_name(ctx: Ctx, waid: str) -> str:
     m = next((m for m in ctx.club.members if m.waid == waid), None)
     return m.name if m else waid
@@ -644,7 +687,7 @@ def set_session(waid: str, **kwargs) -> None:
         s.update(kwargs)
         save_session(waid, s)
 
-def render_root_menu(waid: str) -> str:
+def _root_menu_parts(waid: str) -> Tuple[str, List[str]]:
     mclubs = member_clubs(waid)
     aclubs = admin_clubs(waid)
     opts = []
@@ -658,20 +701,41 @@ def render_root_menu(waid: str) -> str:
         idx += 1
     if aclubs:
         if len(aclubs) == 1:
-            opts.append(f"{idx}) 🛠️ Menú de admin ({aclubs[0]})"); idx += 1
+            opts.append(f"{idx}) 🛠️ Menú de admin ({aclubs[0]})")
         else:
-            opts.append(f"{idx}) 🛠️ Menú de admin (elegir club)"); idx += 1
-    opts.append(f"{idx}) 📌 Mi estado de rol"); idx += 1
-    return header + "\n" + "\n".join(opts)
+            opts.append(f"{idx}) 🛠️ Menú de admin (elegir club)")
+        idx += 1
+    opts.append(f"{idx}) 📌 Mi estado de rol")
+    return header, opts
+
+
+def render_root_menu(waid: str) -> str:
+    title, options = _root_menu_parts(waid)
+    return _build_menu_text(title, options)
+
+
+def send_root_menu(waid: str) -> dict:
+    title, options = _root_menu_parts(waid)
+    return send_menu_with_quick_replies(waid, title, options)
+
+
+def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[str]]:
+    title = f"[{ctx.club_id}] 🧭 Menú miembro\n🔢 Elige una opción y envía solo el número:"
+    options = [
+        "1) 🎯 Mi rol (pendiente/confirmado)",
+        "2) 📊 Estado de la ronda",
+        "9) 🔙 Volver",
+    ]
+    return title, options
 
 def render_member_menu(ctx: Ctx) -> str:
-    return (
-        f"[{ctx.club_id}] 🧭 Menú miembro\n"
-        "🔢 Elige una opción y envía solo el número:\n"
-        "1) 🎯 Mi rol (pendiente/confirmado)\n"
-        "2) 📊 Estado de la ronda\n"
-        "9) 🔙 Volver"
-    )
+    title, options = _member_menu_parts(ctx)
+    return _build_menu_text(title, options)
+
+
+def send_member_menu(ctx: Ctx, waid: str) -> dict:
+    title, options = _member_menu_parts(ctx)
+    return send_menu_with_quick_replies(waid, title, options)
 
 def render_member_club_picker(mclubs: List[str]) -> str:
     lines = ["👤 Elige club para tu menú de miembro (envía solo el número):"]
@@ -687,28 +751,45 @@ def render_admin_club_picker(aclubs: List[str]) -> str:
     lines.append("9) 🔙 Volver")
     return "\n".join(lines)
 
+def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[str]]:
+    title = f"[{ctx.club_id}] 🛡️ Menú admin\n🔢 Elige una opción y envía solo el número:"
+    options = [
+        "1) ▶️ Iniciar ronda",
+        "2) 📊 Ver estado",
+        "3) 🛑 Cancelar ronda",
+        "4) ♻️ Resetear estado",
+        "5) 👥 Ver miembros",
+        "6) ➕ Agregar miembro",
+        "7) ➖ Eliminar miembro",
+        "8) 🔁 Cambiar de club",
+        "9) 🔙 Volver",
+    ]
+    return title, options
+
 def render_admin_menu(ctx: Ctx) -> str:
-    return (
-        f"[{ctx.club_id}] 🛡️ Menú admin\n"
-        "🔢 Elige una opción y envía solo el número:\n"
-        "1) ▶️ Iniciar ronda\n"
-        "2) 📊 Ver estado\n"
-        "3) 🛑 Cancelar ronda\n"
-        "4) ♻️ Resetear estado\n"
-        "5) 👥 Ver miembros\n"
-        "6) ➕ Agregar miembro\n"
-        "7) ➖ Eliminar miembro\n"
-        "8) 🔁 Cambiar de club\n"
-        "9) 🔙 Volver"
+    title, options = _admin_menu_parts(ctx)
+    return _build_menu_text(title, options)
+
+
+def send_admin_menu(ctx: Ctx, waid: str) -> dict:
+    title, options = _admin_menu_parts(ctx)
+    return send_menu_with_quick_replies(waid, title, options)
+
+
+def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[str]]:
+    title = (
+        f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).\n"
+        "Elige una opción y envía solo el número:"
     )
+    options = [
+        "1) ✅ Aceptar",
+        "2) ❌ Rechazar",
+    ]
+    return title, options
 
 def invite_text(ctx: Ctx, role: str, round_no: int) -> str:
-    return (
-        f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).\n"
-        "Elige una opción y envía solo el número:\n"
-        "1) ✅ Aceptar\n"
-        "2) ❌ Rechazar"
-    )
+    title, options = invite_menu_parts(ctx, role, round_no)
+    return _build_menu_text(title, options)
 
 
 def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
@@ -717,7 +798,8 @@ def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
         awaiting="invite_decision",
         buffer={"role": role, "waid": waid, "club": ctx.club_id, "round": round_no},
     )
-    send_text(waid, invite_text(ctx, role, round_no))
+    title, options = invite_menu_parts(ctx, role, round_no)
+    send_menu_with_quick_replies(waid, title, options)
 
 
 def send_invite_menu(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
@@ -797,6 +879,44 @@ def has_pending_invite(ctx: Ctx, waid: str) -> Optional[str]:
     return None
 
 
+def _extract_incoming_text(msg: dict) -> str:
+    t = (msg.get("type") or "").lower()
+    if t == "text":
+        return (msg.get("text") or {}).get("body", "") or ""
+
+    candidates = []
+    candidates.append(msg.get("postbackText"))
+    candidates.append(msg.get("postback"))
+    candidates.append(msg.get("payload"))
+    candidates.append(msg.get("text"))
+    candidates.append(msg.get("title"))
+
+    for k in ("reply", "button", "interactive", "list"):
+        obj = msg.get(k) or {}
+        if isinstance(obj, dict):
+            candidates.append(
+                obj.get("postbackText")
+                or obj.get("postback")
+                or obj.get("payload")
+                or obj.get("text")
+                or obj.get("title")
+            )
+            if "reply" in obj and isinstance(obj["reply"], dict):
+                r = obj["reply"]
+                candidates.append(
+                    r.get("postbackText")
+                    or r.get("postback")
+                    or r.get("payload")
+                    or r.get("id")
+                    or r.get("title")
+                )
+
+    for v in candidates:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook_post():
     data = request.get_json(force=True, silent=True) or {}
@@ -807,10 +927,10 @@ def webhook_post():
             .get("value", {})
         )
         for msg in value.get("messages", []):
-            if msg.get("type") != "text":
-                continue
             waid = msg.get("from", "")
-            body_raw = msg.get("text", {}).get("body", "")
+            body_raw = _extract_incoming_text(msg)
+            if not body_raw:
+                continue
             body = norm(body_raw)
             log.info("Mensaje de %s: %s", waid, body)
             s = get_session(waid)
@@ -863,7 +983,7 @@ def webhook_post():
                         send_text(waid, "📝 Envía la temática de la sesión:")
                     else:
                         set_session(waid, awaiting=None, buffer=None, mode="root")
-                        send_text(waid, render_root_menu(waid))
+                        send_root_menu(waid)
                     return jsonify({"status": "ok"})
 
                 elif body == "2":
@@ -872,14 +992,15 @@ def webhook_post():
                     reject_msg = handle_reject(club_ctx, waid)
                     send_text(waid, reject_msg)
                     set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_text(waid, render_root_menu(waid))
+                    send_root_menu(waid)
                     return jsonify({"status": "ok"})
 
                 else:
                     buffer = s.get("buffer", {})
                     club_ctx = _CTX[buffer["club"]]
                     send_text(waid, "❗Opción inválida. Responde 1 (Aceptar) o 2 (Rechazar).")
-                    send_text(waid, invite_text(club_ctx, buffer["role"], buffer["round"]))
+                    title, opts = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
+                    send_menu_with_quick_replies(waid, title, opts)
                     return jsonify({"status": "ok"})
 
             # Agregar miembro
@@ -896,7 +1017,7 @@ def webhook_post():
                 out = admin_add_member(ctx, name.strip(), num.strip())
                 send_text(waid, out)
                 set_session(waid, awaiting=None, buffer=None)
-                send_text(waid, render_admin_menu(ctx))
+                send_admin_menu(ctx, waid)
                 continue
 
             # Eliminar miembro
@@ -905,7 +1026,7 @@ def webhook_post():
                 out = admin_remove_member(ctx, tail)
                 send_text(waid, out)
                 set_session(waid, awaiting=None, buffer=None)
-                send_text(waid, render_admin_menu(ctx))
+                send_admin_menu(ctx, waid)
                 continue
 
             # ============ FLUJO: Palabra del Día ============
@@ -958,7 +1079,7 @@ def webhook_post():
                     club_ctx.state_store.save(st)
                     send_text(waid, f"✅ Palabra del día guardada: '{buffer['palabra']}'")
                     set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_text(waid, render_root_menu(waid))
+                    send_root_menu(waid)
                     continue
                 elif body == "2":
                     set_session(waid, awaiting="word_edit_palabra", buffer=buffer)
@@ -1059,7 +1180,7 @@ def webhook_post():
                     club_ctx.state_store.save(st)
                     send_text(waid, f"✅ Temática guardada: '{buffer['topic']}'")
                     set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_text(waid, render_root_menu(waid))
+                    send_root_menu(waid)
                     continue
                 elif body == "2":
                     set_session(waid, awaiting="theme_edit_topic", buffer=buffer)
@@ -1097,7 +1218,7 @@ def webhook_post():
                             if len(mclubs) == 1:
                                 cid = mclubs[0]
                                 set_session(waid, mode="member", club=cid, awaiting=None)
-                                send_text(waid, render_member_menu(_CTX[cid])); continue
+                                send_member_menu(_CTX[cid], waid); continue
                             set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
                             send_text(waid, render_member_club_picker(mclubs)); continue
                         idx += 1
@@ -1105,7 +1226,7 @@ def webhook_post():
                         if len(aclubs) == 1:
                             if body == str(idx):
                                 set_session(waid, mode="admin", club=aclubs[0], awaiting=None)
-                                send_text(waid, render_admin_menu(_CTX[aclubs[0]])); continue
+                                send_admin_menu(_CTX[aclubs[0]], waid); continue
                             idx += 1
                         else:
                             if body == str(idx):
@@ -1129,7 +1250,7 @@ def webhook_post():
                                     send_text(waid, who_am_i_summary(_CTX[cid], waid))
                                 else:
                                     send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
-                        send_text(waid, render_root_menu(waid))
+                        send_root_menu(waid)
                         continue
 
                 # Picker miembro multi-club
@@ -1137,15 +1258,15 @@ def webhook_post():
                     mclubs = member_clubs(waid)
                     if not mclubs:
                         set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
-                        send_text(waid, render_root_menu(waid)); continue
+                        send_root_menu(waid); continue
                     if body == "9":
                         set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
-                        send_text(waid, render_root_menu(waid)); continue
+                        send_root_menu(waid); continue
                     try:
                         idx = int(body) - 1
                         cid = mclubs[idx]
                         set_session(waid, mode="member", club=cid, awaiting=None, buffer=None)
-                        send_text(waid, render_member_menu(_CTX[cid])); continue
+                        send_member_menu(_CTX[cid], waid); continue
                     except Exception:
                         send_text(waid, render_member_club_picker(mclubs)); continue
 
@@ -1154,12 +1275,12 @@ def webhook_post():
                     aclubs = admin_clubs(waid)
                     if body == "9":
                         set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_text(waid, render_root_menu(waid)); continue
+                        send_root_menu(waid); continue
                     try:
                         idx = int(body) - 1
                         cid = aclubs[idx]
                         set_session(waid, mode="admin", club=cid, awaiting=None)
-                        send_text(waid, render_admin_menu(_CTX[cid])); continue
+                        send_admin_menu(_CTX[cid], waid); continue
                     except Exception:
                         send_text(waid, render_admin_club_picker(aclubs)); continue
 
@@ -1168,13 +1289,13 @@ def webhook_post():
                     ctx = _CTX[current_cid]
                     if body == "1":
                         send_text(waid, who_am_i(ctx, waid))
-                        send_text(waid, render_member_menu(ctx)); continue
+                        send_member_menu(ctx, waid); continue
                     if body == "2":
                         send_text(waid, status_text(ctx))
-                        send_text(waid, render_member_menu(ctx)); continue
+                        send_member_menu(ctx, waid); continue
                     if body == "9":
                         set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_text(waid, render_root_menu(waid)); continue
+                        send_root_menu(waid); continue
 
                 # Menú admin
                 if s.get("mode") == "admin" and current_cid and current_cid in _CTX:
@@ -1184,20 +1305,20 @@ def webhook_post():
                         send_text(waid, msg)
                         # Evita colisión: si ahora el admin tiene invitación pendiente o está en un flujo, no spamees el menú
                         if not has_pending_invite(ctx, waid) and get_session(waid).get("awaiting") is None:
-                            send_text(waid, render_admin_menu(ctx))
+                            send_admin_menu(ctx, waid)
                         continue
                     if body == "2":
                         send_text(waid, status_text(ctx))
-                        send_text(waid, render_admin_menu(ctx)); continue
+                        send_admin_menu(ctx, waid); continue
                     if body == "3":
                         send_text(waid, cancel_round(ctx, pretty_name(ctx, waid)))
-                        send_text(waid, render_admin_menu(ctx)); continue
+                        send_admin_menu(ctx, waid); continue
                     if body == "4":
                         send_text(waid, reset_all(ctx, pretty_name(ctx, waid)))
-                        send_text(waid, render_admin_menu(ctx)); continue
+                        send_admin_menu(ctx, waid); continue
                     if body == "5":
                         send_text(waid, admin_list_members(ctx))
-                        send_text(waid, render_admin_menu(ctx)); continue
+                        send_admin_menu(ctx, waid); continue
                     if body == "6":
                         set_session(waid, awaiting="admin_add_member", buffer=None)
                         send_text(waid, "✍️ Envía: Nombre, 55XXXXXXXX")
@@ -1211,10 +1332,10 @@ def webhook_post():
                         if len(aclubs) > 1:
                             set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
                             send_text(waid, render_admin_club_picker(aclubs)); continue
-                        send_text(waid, render_admin_menu(ctx)); continue
+                        send_admin_menu(ctx, waid); continue
                     if body == "9":
                         set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_text(waid, render_root_menu(waid)); continue
+                        send_root_menu(waid); continue
     
 
             # PRIORIDAD 4: Comandos legacy
@@ -1225,21 +1346,21 @@ def webhook_post():
                     send_text(waid, who_am_i(_CTX[cid], waid))
                 else:
                     send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
-                send_text(waid, render_root_menu(waid))
+                send_root_menu(waid)
                 continue
 
             if body in ("acepto", "accept") and ctx:
                 send_text(waid, handle_accept(ctx, waid))
-                send_text(waid, render_root_menu(waid))
+                send_root_menu(waid)
                 continue
 
             if body in ("rechazo", "reject") and ctx:
                 send_text(waid, handle_reject(ctx, waid))
-                send_text(waid, render_root_menu(waid))
+                send_root_menu(waid)
                 continue
 
             # FALLBACK: menú principal
-            send_text(waid, render_root_menu(waid))
+            send_root_menu(waid)
 
     except Exception:
         log.exception("Error procesando webhook; payload=%s", data)
