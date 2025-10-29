@@ -1,23 +1,23 @@
 {
-  "round": 1,
+  "round": 2,
   "pending": {
     "Toastmasters de la noche": {
-      "candidate": "5212293655442",
-      "declined_by": [],
-      "accepted": false
-    },
-    "Evaluador gramatical": {
       "candidate": "5212721073312",
       "declined_by": [],
       "accepted": false
     },
+    "Evaluador gramatical": {
+      "candidate": "5212293655442",
+      "declined_by": [],
+      "accepted": false
+    },
     "Evaluador de muletillas": {
-      "candidate": "5219211787763",
+      "candidate": "5219212671618",
       "declined_by": [],
       "accepted": false
     },
     "Evaluador del tiempo": {
-      "candidate": "5219212671618",
+      "candidate": "5219211787763",
       "declined_by": [],
       "accepted": false
     }

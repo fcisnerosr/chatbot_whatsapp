@@ -1,5 +1,5 @@
 {
-  "round": 10,
+  "round": 11,
   "pending": {
     "Toastmasters de la noche": {
       "candidate": "5215634948177",
@@ -7,17 +7,17 @@
       "accepted": true
     },
     "Evaluador gramatical": {
-      "candidate": "5212293655442",
-      "declined_by": [],
-      "accepted": false
-    },
-    "Evaluador de muletillas": {
       "candidate": "5212721073312",
       "declined_by": [],
       "accepted": false
     },
+    "Evaluador de muletillas": {
+      "candidate": "5212293655442",
+      "declined_by": [],
+      "accepted": false
+    },
     "Evaluador del tiempo": {
-      "candidate": "5219212671618",
+      "candidate": "5219211787763",
       "declined_by": [],
       "accepted": false
     }
@@ -40,9 +40,9 @@
   "last_summary": null,
   "canceled": false,
   "session_theme": {
-    "topic": "Prueba",
+    "topic": "A",
     "waid": "5215634948177",
     "nombre": "Roger",
-    "round": 4
+    "round": 11
   }
 }

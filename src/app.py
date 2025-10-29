@@ -1,15 +1,13 @@
 # app.py
 # --------------------------------------------------------------------------------------
-# WhatsApp roles bot (Flask + Gupshup) - MULTI-CLUB con MENÚS NUMÉRICOS
+# WhatsApp roles bot (Flask + Gupshup) - MULTI-CLUB con MENÚS por LISTAS/QR + fallback numérico
 #
-# - Carga todos los clubes desde data/clubs/registry.json
-# - Cada club tiene su propio {club.json, state.json} en data/clubs/<club_id>/
-# - Asignación de roles con priorización por dificultad y ciclo de roles.
-# - Interfaz 100% por MENÚS numéricos para usuarios y administradores.
-#   • Miembro: ve su menú de miembro.
-#   • Admin: ve su menú de admin.
-#   • Admin y miembro: menú raíz que separa ambos.
-#   • Invitaciones: siempre ofrece 1 Aceptar / 2 Rechazar.
+# Cambios clave:
+# - Parser robusto de Gupshup (list_reply/button/quick_reply) → extrae id/postbackText/title/reply.
+# - Despacho directo por etiquetas visibles (p. ej., "🛠️ Menú de admin") SIN depender del orden del menú.
+# - Coincidencia basada en norm() (sin acentos/emoji) + soporte numérico previo.
+# - Menús de "miembro", "admin" y "volver" también matchean por etiqueta.
+# - IDs de opciones = norm(label) para garantizar retorno estable.
 #
 # .env mínimo:
 #   GUPSHUP_API_KEY=...
@@ -29,6 +27,7 @@ import random
 import re
 import tempfile
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
@@ -36,7 +35,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from requests.exceptions import RequestException
 
 # Modelo POO existente
@@ -280,19 +279,225 @@ def broadcast_text(numbers: Set[str] | List[str] | Tuple[str, ...], text: str) -
     return {"ok": ok, "fail": fail}
 
 
-def _build_menu_text(title: str, options: List[str]) -> str:
+def _normalize_option(option: str | Tuple[str, str]) -> Tuple[str, str]:
+    if isinstance(option, tuple):
+        label = option[0]
+        description = option[1] if len(option) > 1 else ""
+    else:
+        label = option
+        description = ""
+    return label.strip(), description.strip()
+
+
+def _build_menu_text(title: str, options: List[str | Tuple[str, str]]) -> str:
     title_clean = title.rstrip("\n")
-    option_lines = [opt.rstrip("\n") for opt in options]
-    if title_clean and option_lines:
-        return title_clean + "\n" + "\n".join(option_lines)
+    lines: List[str] = []
+    for opt in options:
+        label, description = _normalize_option(opt)
+        if description:
+            lines.append(f"- {label} — {description}")
+        else:
+            lines.append(f"- {label}")
+    if title_clean and lines:
+        return title_clean + "\n" + "\n".join(lines)
     if title_clean:
         return title_clean
-    return "\n".join(option_lines)
+    return "\n".join(lines)
+
+
+def matches_option(user_raw: str, option: str | Tuple[str, str]) -> bool:
+    label, description = _normalize_option(option)
+    u = (user_raw or "").strip()
+    if not u:
+        return False
+
+    u_norm = norm(u)
+    label_norm = norm(label)
+    desc_norm = norm(description)
+
+    # 1) Etiqueta exacta
+    if u == label or u_norm == label_norm:
+        return True
+
+    # 2) Etiqueta + descripción (varios formatos)
+    if description:
+        combos = [
+            f"{label}\n{description}",
+            f"{label} — {description}",
+            f"{label} - {description}",
+            f"{label}  {description}",
+        ]
+        for combo in combos:
+            if u == combo or u_norm == norm(combo):
+                return True
+
+        # 3) Prefijo: empieza por la etiqueta y luego salto/guion/emdash/espacios/:
+        if u.startswith(label) or u_norm.startswith(label_norm):
+            tail = u[len(label):].lstrip()
+            if not tail or tail.startswith(("\n", "-", "—", ":", " ")):
+                return True
+
+    # 4) Fallback numérico
+    opt_digit = re.match(r"^\s*(\d+)", label)
+    user_digit = re.match(r"^\s*(\d+)", u)
+    if opt_digit and user_digit and opt_digit.group(1) == user_digit.group(1):
+        return True
+
+    return False
+
+
+# --- Despacho directo por etiquetas visibles -----------------------------------------
+# Precompute sets normalizados para coincidencia exacta sin emojis/acentos.
+def _set_norm(labels: List[str]) -> Set[str]:
+    return {norm(x) for x in labels}
+
+ROOT_MEMBER_SET = _set_norm(["👤 Menú de miembro", "Menú de miembro"])
+ROOT_ADMIN_SET  = _set_norm(["🛠️ Menú de admin", "Menú de admin"])
+ROOT_STATUS_SET = _set_norm(["📌 Mi estado de rol", "Mi estado de rol"])
+BACK_SET        = _set_norm(["🔙 Volver", "Volver"])
+MEM_ROLE_SET    = _set_norm(["🎯 Mi rol", "Mi rol"])
+MEM_STATUS_SET  = _set_norm(["📊 Estado de la ronda", "Estado de la ronda"])
+
+def _is_choice(body_raw: str, target_set: Set[str]) -> bool:
+    raw = (body_raw or "").strip()
+    if not raw:
+        return False
+
+    # Consider the full text and common "label + descripción" formats.
+    candidates: Set[str] = {norm(raw)}
+    first_line = raw.splitlines()[0]
+    candidates.add(norm(first_line))
+    for sep in (" — ", " - ", ":", "  "):
+        if sep in raw:
+            candidates.add(norm(raw.split(sep, 1)[0]))
+    return any(candidate in target_set for candidate in candidates)
+
+
+def send_list_menu(
+    to_e164_no_plus: str,
+    title: str,
+    options: List[str | Tuple[str, str]],
+    button: str = "Elige una opción",
+) -> dict:
+    menu_text = _build_menu_text(title, options)
+    if not options:
+        return send_text(to_e164_no_plus, menu_text)
+
+    title_lines = [line.strip() for line in title.splitlines() if line.strip()]
+    body_text = title_lines[0] if title_lines else "Elige una opción"
+    button_text = (button or "Elige una opción").strip() or "Elige una opción"
+    button_trimmed = button_text[:24]
+    msg_id = f"list-{uuid.uuid4().hex[:12]}"
+
+    option_payloads: List[dict] = []
+    for opt in options:
+        label, description = _normalize_option(opt)
+        option_title = label[:24] if label else ""
+        entry = {
+            "type": "text",
+            "title": option_title,
+            "id": norm(label)[:32] or uuid.uuid4().hex[:8],  # ← ID estable = norm(label)
+            "postbackText": label,
+        }
+        if description:
+            entry["description"] = description[:72]
+        option_payloads.append(entry)
+
+    payload = {
+        "type": "list",
+        "title": button_trimmed,
+        "body": body_text,
+        "msgid": msg_id,
+        "globalButtons": [{"type": "text", "title": button_trimmed}],
+        "items": [
+            {
+                "title": "Opciones",
+                "options": option_payloads,
+            }
+        ],
+    }
+
+    data = {
+        "channel": "whatsapp",
+        "source": CFG.source,
+        "destination": to_e164_no_plus,
+        "message": json.dumps(payload, ensure_ascii=False),
+        "src.name": CFG.app_name,
+    }
+    url = "https://api.gupshup.io/wa/api/v1/msg"
+    try:
+        resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
+        if resp.ok:
+            return resp.json()
+        log.warning("Gupshup list %s: %s", resp.status_code, resp.text)
+    except RequestException:
+        log.exception("Error al enviar lista Gupshup")
+
+    return send_text(to_e164_no_plus, menu_text)
+
+
+# --- Detección/parse de eventos Gupshup ----------------------------------------------
+def _is_gupshup_event(data: dict) -> bool:
+    return isinstance(data, dict) and isinstance(data.get("payload"), dict) and isinstance(data.get("type"), str)
+
+
+def _extract_gupshup_text(payload: dict) -> str:
+    t = (payload.get("type") or "").lower()
+
+    # Texto plano
+    if t == "text":
+        txt = payload.get("text")
+        return txt.strip() if isinstance(txt, str) else ""
+
+    # Quick/button
+    if t in ("quick_reply", "button_postback", "button_reply", "reply", "button"):
+        p = payload.get("payload") or {}
+        if isinstance(p, str):
+            try:
+                p = json.loads(p)
+            except Exception:
+                return p.strip()
+        v = (
+            (p.get("postbackText") if isinstance(p, dict) else None)
+            or (p.get("reply") if isinstance(p, dict) else None)
+            or (p.get("id") if isinstance(p, dict) else None)
+            or (p.get("title") if isinstance(p, dict) else None)
+            or payload.get("postbackText")
+            or payload.get("id")
+            or payload.get("title")
+            or payload.get("text")
+        )
+        return v.strip() if isinstance(v, str) else ""
+
+    # List reply
+    if t == "list_reply":
+        p = payload.get("payload") or {}
+        v = p.get("postbackText") or p.get("title") or p.get("id")
+        return v.strip() if isinstance(v, str) else ""
+
+    # Interactive (reenviado como tal por pasarela)
+    if t == "interactive":
+        inter = payload.get("interactive") or {}
+        if isinstance(inter, dict):
+            lr = inter.get("list_reply")
+            if isinstance(lr, dict):
+                v = lr.get("postbackText") or lr.get("title") or lr.get("id")
+                return v.strip() if isinstance(v, str) else ""
+            br = inter.get("button_reply") or inter.get("reply")
+            if isinstance(br, dict):
+                v = br.get("postbackText") or br.get("title") or br.get("text") or br.get("id")
+                return v.strip() if isinstance(v, str) else ""
+        return ""
+
+    return ""
+
+
+def _is_gupshup_interactive(payload: dict) -> bool:
+    return (payload.get("type") or "").lower() in ("quick_reply", "button_postback", "button_reply", "list_reply", "interactive")
 
 
 def send_menu_with_quick_replies(to_e164_no_plus: str, title: str, options: List[str]) -> dict:
     menu_text = _build_menu_text(title, options)
-    # Si no hay opciones, solo texto
     if not options:
         return send_text(to_e164_no_plus, menu_text)
 
@@ -308,10 +513,10 @@ def send_menu_with_quick_replies(to_e164_no_plus: str, title: str, options: List
         payload["options"].append({
             "type": "text",
             "title": opt_text,
-            "postbackText": postback,  # lo que usamos idealmente
-            "id": postback,            # algunos payloads devuelven 'id'
-            "postback": postback,      # otros 'postback'
-            "payload": postback,       # otros 'payload'
+            "postbackText": postback,
+            "id": postback,
+            "postback": postback,
+            "payload": postback,
         })
 
     data = {
@@ -324,14 +529,12 @@ def send_menu_with_quick_replies(to_e164_no_plus: str, title: str, options: List
     url = "https://api.gupshup.io/wa/api/v1/msg"
     try:
         resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
-        # Éxito → NO envíes el menú de texto
         if resp.ok:
             return resp.json()
         log.warning("Gupshup quick replies %s: %s", resp.status_code, resp.text)
     except RequestException:
         log.exception("Error al enviar quick replies a Gupshup")
 
-    # Fallback: si falló lo interactivo, envía el menú enumerado en texto
     return send_text(to_e164_no_plus, menu_text)
 
 
@@ -593,19 +796,14 @@ def who_am_i(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in st["pending"].items():
         if info["candidate"] == waid and not info["accepted"]:
-            return (
-                f"Tienes una invitación pendiente: {role} en la ronda #{st['round']} ({ctx.club_id}).\n"
-                "Elige una opción y envía solo el número:\n"
-                "1) ✅ Aceptar\n"
-                "2) ❌ Rechazar"
-            )
+            title, options, _ = invite_menu_parts(ctx, role, st["round"])
+            return _build_menu_text(title, options)
     for role, acc in st["accepted"].items():
         if acc["waid"] == waid:
             return f"✅ Confirmaste el rol {role} en la ronda #{st['round']} ({ctx.club_id})."
     return "➖ No tienes roles asignados ni pendientes."
 
 
-# --- Resumen sin menús (para “Mi estado de rol” del menú raíz) -----------------------
 def who_am_i_summary(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in st["pending"].items():
@@ -699,109 +897,112 @@ def set_session(waid: str, **kwargs) -> None:
         s.update(kwargs)
         save_session(waid, s)
 
-def _root_menu_parts(waid: str) -> Tuple[str, List[str]]:
+def _root_menu_parts(waid: str) -> Tuple[str, List[Tuple[str, str]], str]:
     mclubs = member_clubs(waid)
     aclubs = admin_clubs(waid)
-    opts = []
-    idx = 1
-    header = "🔢 Elige una opción y envía solo el número:"
+    options: List[Tuple[str, str]] = []
+    header = "Asistente de asignación de roles: Menú principal. Elija una opción"
     if mclubs:
-        if len(mclubs) == 1:
-            opts.append(f"{idx}) 👤 Menú de miembro ({mclubs[0]})")
-        else:
-            opts.append(f"{idx}) 👤 Menú de miembro (elegir club)")
-        idx += 1
+        desc = f"Club único: {mclubs[0]}" if len(mclubs) == 1 else "Elegir club"
+        options.append(("👤 Menú de miembro", desc))
     if aclubs:
-        if len(aclubs) == 1:
-            opts.append(f"{idx}) 🛠️ Menú de admin ({aclubs[0]})")
-        else:
-            opts.append(f"{idx}) 🛠️ Menú de admin (elegir club)")
-        idx += 1
-    opts.append(f"{idx}) 📌 Mi estado de rol")
-    return header, opts
+        desc = f"Club único: {aclubs[0]}" if len(aclubs) == 1 else "Elegir club"
+        options.append(("🛠️ Menú de admin", desc))
+    options.append(("📌 Mi estado de rol", "Invitación o confirmación"))
+    return header, options, "Menú principal"
 
 
 def render_root_menu(waid: str) -> str:
-    title, options = _root_menu_parts(waid)
+    title, options, _ = _root_menu_parts(waid)
     return _build_menu_text(title, options)
 
 
 def send_root_menu(waid: str) -> dict:
-    # Enviar SIEMPRE en texto (fiable en sandbox)
-    title, options = _root_menu_parts(waid)
-    return send_text(waid, _build_menu_text(title, options))    
+    title, options, button = _root_menu_parts(waid)
+    return send_list_menu(waid, title, options, button)
 
 
-def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[str]]:
-    title = f"[{ctx.club_id}] 🧭 Menú miembro\n🔢 Elige una opción y envía solo el número:"
-    options = [
-        "1) 🎯 Mi rol (pendiente/confirmado)",
-        "2) 📊 Estado de la ronda",
-        "9) 🔙 Volver",
+def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
+    title = f"Asistente de asignación de roles: Menú de miembro [{ctx.club_id}]. Elija una opción"
+    options: List[Tuple[str, str]] = [
+        ("🎯 Mi rol", "Pendiente o confirmado"),
+        ("📊 Estado de la ronda", "Resumen y pendientes"),
+        ("🔙 Volver", "Regresar al menú principal"),
     ]
-    return title, options
+    return title, options, "Menú de miembro"
 
 def render_member_menu(ctx: Ctx) -> str:
-    title, options = _member_menu_parts(ctx)
+    title, options, _ = _member_menu_parts(ctx)
     return _build_menu_text(title, options)
 
 
 def send_member_menu(ctx: Ctx, waid: str) -> dict:
-    title, options = _member_menu_parts(ctx)
-    return send_text(waid, _build_menu_text(title, options))
+    title, options, button = _member_menu_parts(ctx)
+    return send_list_menu(waid, title, options, button)
+
+
+def member_club_picker_parts(mclubs: List[str]) -> Tuple[str, List[Tuple[str, str]], str]:
+    title = "Asistente de asignación de roles: Selecciona club para menú de miembro. Elija una opción"
+    options: List[Tuple[str, str]] = [(cid, "Seleccionar este club") for cid in mclubs]
+    options.append(("🔙 Volver", "Regresar al menú principal"))
+    return title, options, "Elegir club"
+
 
 def render_member_club_picker(mclubs: List[str]) -> str:
-    lines = ["👤 Elige club para tu menú de miembro (envía solo el número):"]
-    for i, cid in enumerate(mclubs, 1):
-        lines.append(f"{i}) {cid}")
-    lines.append("9) 🔙 Volver")
-    return "\n".join(lines)
+    title, options, _ = member_club_picker_parts(mclubs)
+    return _build_menu_text(title, options)
+
+
+def admin_club_picker_parts(aclubs: List[str]) -> Tuple[str, List[Tuple[str, str]], str]:
+    title = "Asistente de asignación de roles: Selecciona club para administrar. Elija una opción"
+    options: List[Tuple[str, str]] = [(cid, "Seleccionar este club") for cid in aclubs]
+    options.append(("🔙 Volver", "Regresar al menú principal"))
+    return title, options, "Elegir club"
+
 
 def render_admin_club_picker(aclubs: List[str]) -> str:
-    lines = ["🛠️ Elige club para administrar (envía solo el número):"]
-    for i, cid in enumerate(aclubs, 1):
-        lines.append(f"{i}) {cid}")
-    lines.append("9) 🔙 Volver")
-    return "\n".join(lines)
+    title, options, _ = admin_club_picker_parts(aclubs)
+    return _build_menu_text(title, options)
 
-def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[str]]:
-    title = f"[{ctx.club_id}] 🛡️ Menú admin\n🔢 Elige una opción y envía solo el número:"
-    options = [
-        "1) ▶️ Iniciar ronda",
-        "2) 📊 Ver estado",
-        "3) 🛑 Cancelar ronda",
-        "4) ♻️ Resetear estado",
-        "5) 👥 Ver miembros",
-        "6) ➕ Agregar miembro",
-        "7) ➖ Eliminar miembro",
-        "8) 🔁 Cambiar de club",
-        "9) 🔙 Volver",
+
+def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
+    title = f"Asistente de asignación de roles: Menú admin [{ctx.club_id}]. Elija una opción"
+    options: List[Tuple[str, str]] = [
+        ("▶️ Iniciar ronda", "Proponer candidatos por rol"),
+        ("📊 Ver estado", "Resumen actual y pendientes"),
+        ("🛑 Cancelar ronda", "Borrar pendientes y aceptados"),
+        ("♻️ Resetear estado", "Reiniciar club a cero"),
+        ("👥 Ver miembros", "Lista y niveles"),
+        ("➕ Agregar miembro", "Nombre y teléfono"),
+        ("➖ Eliminar miembro", "Por nombre o número"),
+        ("🔁 Cambiar de club", "Seleccionar otro club"),
+        ("🔙 Volver", "Regresar al menú principal"),
     ]
-    return title, options
+    return title, options, "Menú admin"
 
 def render_admin_menu(ctx: Ctx) -> str:
-    title, options = _admin_menu_parts(ctx)
+    title, options, _ = _admin_menu_parts(ctx)
     return _build_menu_text(title, options)
 
 
 def send_admin_menu(ctx: Ctx, waid: str) -> dict:
-    title, options = _admin_menu_parts(ctx)
-    return send_text(waid, _build_menu_text(title, options))
+    title, options, button = _admin_menu_parts(ctx)
+    return send_list_menu(waid, title, options, button)
 
 
-def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[str]]:
+def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tuple[str, str]], str]:
     title = (
         f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).\n"
-        "Elige una opción y envía solo el número:"
+        "Elija una opción para responder."
     )
-    options = [
-        "1) ✅ Aceptar",
-        "2) ❌ Rechazar",
+    options: List[Tuple[str, str]] = [
+        ("✅ Aceptar", "Confirmar rol"),
+        ("❌ Rechazar", "Ceder a otra persona"),
     ]
-    return title, options
+    return title, options, "Responder invitación"
 
 def invite_text(ctx: Ctx, role: str, round_no: int) -> str:
-    title, options = invite_menu_parts(ctx, role, round_no)
+    title, options, _ = invite_menu_parts(ctx, role, round_no)
     return _build_menu_text(title, options)
 
 
@@ -811,12 +1012,550 @@ def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
         awaiting="invite_decision",
         buffer={"role": role, "waid": waid, "club": ctx.club_id, "round": round_no},
     )
-    title, options = invite_menu_parts(ctx, role, round_no)
-    send_menu_with_quick_replies(waid, title, options)
+    title, options, button = invite_menu_parts(ctx, role, round_no)
+    send_list_menu(waid, title, options, button)
 
 
 def send_invite_menu(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
     begin_invite_flow(ctx, waid, role, round_no)
+
+
+# ======================================================================================
+# 5.1 Router MENÚS con despacho por etiqueta
+# ======================================================================================
+
+def _process_message_router(
+    waid: str,
+    body_raw: str,
+    body_norm: str,
+    is_interactive: bool,
+    msg_type: str,
+) -> Optional[Response]:
+    s = get_session(waid)
+    body_raw_clean = body_raw.strip()
+    log.info("Mensaje de %s: %s", waid, body_norm)
+
+    is_number = re.fullmatch(r"\d{1,3}", body_norm) is not None
+    log.debug(
+        "tipo=%s interactive=%s awaiting=%s mode=%s",
+        msg_type,
+        is_interactive,
+        s.get("awaiting"),
+        s.get("mode"),
+    )
+
+    # Si llega sólo el título del listado ("Menú principal") ignóralo y vuelve a pintar
+    if _is_choice(body_raw_clean, _set_norm(["Menú principal"])):
+        send_root_menu(waid)
+        return None
+
+    if not s.get("club"):
+        mclubs = member_clubs(waid)
+        acls = admin_clubs(waid)
+        if len(mclubs) == 1:
+            set_session(waid, club=mclubs[0])
+        elif len(acls) == 1:
+            set_session(waid, club=acls[0])
+
+    current_cid = s.get("club") or infer_user_club(waid, extract_trailing_club_id(body_raw))
+    ctx = _CTX[current_cid] if current_cid and current_cid in _CTX else None
+
+    awaiting = s.get("awaiting")
+
+    # --------- Flujos de invitación (persisten sobre cualquier menú) -------------------
+    if awaiting == "invite_decision":
+        accept_option = ("✅ Aceptar", "Confirmar rol")
+        reject_option = ("❌ Rechazar", "Ceder a otra persona")
+
+        wants_accept = matches_option(body_raw_clean, accept_option) or body_norm in ("1", "acepto", "accept", "si", "sí", "ok")
+        wants_reject = matches_option(body_raw_clean, reject_option) or body_norm in ("2", "rechazo", "reject", "no", "cancelar", "cancelo")
+
+        if wants_accept:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX[buffer["club"]]
+            role_name = buffer["role"]
+            accept_msg = handle_accept(club_ctx, waid)
+            send_text(waid, accept_msg)
+
+            role_norm = role_name.lower()
+            st_now = club_ctx.state_store.load()
+            if "evaluador gramatical" in role_norm:
+                set_session(
+                    waid,
+                    awaiting="word_step1_palabra",
+                    buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
+                )
+                send_text(waid, "📖 Envía la palabra del día:")
+            elif "toastmaster" in role_norm or "toastmasters de la noche" in role_norm:
+                set_session(
+                    waid,
+                    awaiting="theme_step1_topic",
+                    buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
+                )
+                send_text(waid, "📝 Envía la temática de la sesión:")
+            else:
+                set_session(waid, awaiting=None, buffer=None, mode="root")
+                send_root_menu(waid)
+            return jsonify({"status": "ok"})
+
+        if wants_reject:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX[buffer["club"]]
+            reject_msg = handle_reject(club_ctx, waid)
+            send_text(waid, reject_msg)
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return jsonify({"status": "ok"})
+
+        if is_interactive:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX.get(buffer.get("club"))
+            if club_ctx:
+                send_text(waid, "❗Opción inválida. Usa los botones: ✅ Aceptar / ❌ Rechazar.")
+                title, opts, button = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
+                send_list_menu(waid, title, opts, button)
+            return jsonify({"status": "ok"})
+
+    # --------- Flujos admin de agregar/eliminar miembros --------------------------------
+    if awaiting == "admin_add_member" and s.get("mode") == "admin" and ctx:
+        tail = body_raw.strip()
+        if "," in tail:
+            name, num = tail.split(",", 1)
+        else:
+            parts = tail.rsplit(" ", 1)
+            if len(parts) != 2:
+                send_text(waid, "Formato no válido. Usa: Nombre, 55XXXXXXXX")
+                return None
+            name, num = parts[0], parts[1]
+        out = admin_add_member(ctx, name.strip(), num.strip())
+        send_text(waid, out)
+        set_session(waid, awaiting=None, buffer=None)
+        send_admin_menu(ctx, waid)
+        return None
+
+    if awaiting == "admin_remove_member" and s.get("mode") == "admin" and ctx:
+        tail = body_raw.strip()
+        out = admin_remove_member(ctx, tail)
+        send_text(waid, out)
+        set_session(waid, awaiting=None, buffer=None)
+        send_admin_menu(ctx, waid)
+        return None
+
+    # --------- Flujos Palabra del día / Temática ---------------------------------------
+    if awaiting == "word_step1_palabra":
+        buffer = s.get("buffer", {})
+        buffer["palabra"] = body_raw.strip()
+        set_session(waid, awaiting="word_step2_significado", buffer=buffer)
+        send_text(waid, "✍️ Envía el significado de la palabra:")
+        return None
+
+    if awaiting == "word_step2_significado":
+        buffer = s.get("buffer", {})
+        buffer["significado"] = body_raw.strip()
+        set_session(waid, awaiting="word_step3_ejemplo", buffer=buffer)
+        send_text(waid, "💡 Envía un ejemplo de uso de la palabra:")
+        return None
+
+    if awaiting == "word_step3_ejemplo":
+        buffer = s.get("buffer", {})
+        buffer["ejemplo"] = body_raw.strip()
+        set_session(waid, awaiting="word_confirm", buffer=buffer)
+        resumen = (
+            f"📋 Resumen de Palabra del Día\n\n"
+            f"📖 Palabra: {buffer['palabra']}\n\n"
+            f"✍️ Significado: {buffer['significado']}\n\n"
+            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar palabra\n"
+            f"3) ✏️ Editar significado\n"
+            f"4) ✏️ Editar ejemplo"
+        )
+        send_text(waid, resumen)
+        return None
+
+    if awaiting == "word_confirm" and is_number:
+        buffer = s.get("buffer", {})
+        choice = body_norm
+        if choice == "1":
+            club_ctx = _CTX[buffer["club"]]
+            st = club_ctx.state_store.load()
+            st["word_of_the_day"] = {
+                "palabra": buffer["palabra"],
+                "significado": buffer["significado"],
+                "ejemplo": buffer["ejemplo"],
+                "waid": buffer["waid"],
+                "nombre": pretty_name(club_ctx, buffer["waid"]),
+                "round": buffer["round"],
+            }
+            club_ctx.state_store.save(st)
+            send_text(waid, f"✅ Palabra del día guardada: '{buffer['palabra']}'")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        if choice == "2":
+            set_session(waid, awaiting="word_edit_palabra", buffer=buffer)
+            send_text(waid, f"📖 Palabra actual: {buffer['palabra']}\nEnvía la nueva palabra:")
+            return None
+        if choice == "3":
+            set_session(waid, awaiting="word_edit_significado", buffer=buffer)
+            send_text(waid, f"✍️ Significado actual: {buffer['significado']}\nEnvía el nuevo significado:")
+            return None
+        if choice == "4":
+            set_session(waid, awaiting="word_edit_ejemplo", buffer=buffer)
+            send_text(waid, f"💡 Ejemplo actual: {buffer['ejemplo']}\nEnvía el nuevo ejemplo:")
+            return None
+        send_text(waid, "Opción inválida. Envía 1, 2, 3 o 4.")
+        return None
+
+    if awaiting == "word_edit_palabra":
+        buffer = s.get("buffer", {})
+        buffer["palabra"] = body_raw.strip()
+        set_session(waid, awaiting="word_confirm", buffer=buffer)
+        resumen = (
+            f"📋 Resumen de Palabra del Día\n\n"
+            f"📖 Palabra: {buffer['palabra']}\n\n"
+            f"✍️ Significado: {buffer['significado']}\n\n"
+            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar palabra\n"
+            f"3) ✏️ Editar significado\n"
+            f"4) ✏️ Editar ejemplo"
+        )
+        send_text(waid, resumen)
+        return None
+
+    if awaiting == "word_edit_significado":
+        buffer = s.get("buffer", {})
+        buffer["significado"] = body_raw.strip()
+        set_session(waid, awaiting="word_confirm", buffer=buffer)
+        resumen = (
+            f"📋 Resumen de Palabra del Día\n\n"
+            f"📖 Palabra: {buffer['palabra']}\n\n"
+            f"✍️ Significado: {buffer['significado']}\n\n"
+            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar palabra\n"
+            f"3) ✏️ Editar significado\n"
+            f"4) ✏️ Editar ejemplo"
+        )
+        send_text(waid, resumen)
+        return None
+
+    if awaiting == "word_edit_ejemplo":
+        buffer = s.get("buffer", {})
+        buffer["ejemplo"] = body_raw.strip()
+        set_session(waid, awaiting="word_confirm", buffer=buffer)
+        resumen = (
+            f"📋 Resumen de Palabra del Día\n\n"
+            f"📖 Palabra: {buffer['palabra']}\n\n"
+            f"✍️ Significado: {buffer['significado']}\n\n"
+            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar palabra\n"
+            f"3) ✏️ Editar significado\n"
+            f"4) ✏️ Editar ejemplo"
+        )
+        send_text(waid, resumen)
+        return None
+
+    if awaiting == "theme_step1_topic":
+        buffer = s.get("buffer", {})
+        buffer["topic"] = body_raw.strip()
+        set_session(waid, awaiting="theme_confirm", buffer=buffer)
+        resumen = (
+            f"📝 Temática de la sesión: {buffer['topic']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar temática"
+        )
+        send_text(waid, resumen)
+        return None
+
+    if awaiting == "theme_confirm" and is_number:
+        buffer = s.get("buffer", {})
+        if body_norm == "1":
+            club_ctx = _CTX[buffer["club"]]
+            st = club_ctx.state_store.load()
+            st["session_theme"] = {
+                "topic": buffer["topic"],
+                "waid": buffer["waid"],
+                "nombre": pretty_name(club_ctx, buffer["waid"]),
+                "round": buffer["round"],
+            }
+            club_ctx.state_store.save(st)
+            send_text(waid, f"✅ Temática guardada: '{buffer['topic']}'")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        if body_norm == "2":
+            set_session(waid, awaiting="theme_edit_topic", buffer=buffer)
+            send_text(waid, f"📝 Temática actual: {buffer['topic']}\nEnvía la nueva temática:")
+            return None
+        send_text(waid, "Opción inválida. Envía 1 o 2.")
+        return None
+
+    if awaiting == "theme_edit_topic":
+        buffer = s.get("buffer", {})
+        buffer["topic"] = body_raw.strip()
+        set_session(waid, awaiting="theme_confirm", buffer=buffer)
+        resumen = (
+            f"📝 Temática de la sesión: {buffer['topic']}\n\n"
+            f"Elige:\n"
+            f"1) 💾 Guardar\n"
+            f"2) ✏️ Editar temática"
+        )
+        send_text(waid, resumen)
+        return None
+
+    # --------- Menú raíz: despacho directo por etiqueta -------------------------------
+    mclubs = member_clubs(waid)
+    aclubs = admin_clubs(waid)
+
+    if s.get("mode") == "root":
+        # 1) Miembro
+        if _is_choice(body_raw_clean, ROOT_MEMBER_SET):
+            if len(mclubs) == 1:
+                cid = mclubs[0]
+                set_session(waid, mode="member", club=cid, awaiting=None)
+                send_member_menu(_CTX[cid], waid)
+                return None
+            set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
+            title_pick, opts_pick, button_pick = member_club_picker_parts(mclubs)
+            send_list_menu(waid, title_pick, opts_pick, button_pick)
+            return None
+
+        # 2) Admin
+        if _is_choice(body_raw_clean, ROOT_ADMIN_SET):
+            if len(aclubs) == 1:
+                cid = aclubs[0]
+                set_session(waid, mode="admin", club=cid, awaiting=None)
+                send_admin_menu(_CTX[cid], waid)
+                return None
+            set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
+            title_pick, opts_pick, button_pick = admin_club_picker_parts(aclubs)
+            send_list_menu(waid, title_pick, opts_pick, button_pick)
+            return None
+
+        # 3) Estado
+        if _is_choice(body_raw_clean, ROOT_STATUS_SET):
+            cid = s.get("club") or infer_user_club(waid)
+            if cid and cid in _CTX and len(mclubs) <= 1:
+                send_text(waid, who_am_i_summary(_CTX[cid], waid))
+            else:
+                if mclubs:
+                    lines = [who_am_i_summary(_CTX[c], waid) for c in mclubs]
+                    send_text(waid, "\n".join(lines))
+                else:
+                    if cid and cid in _CTX:
+                        send_text(waid, who_am_i_summary(_CTX[cid], waid))
+                    else:
+                        send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
+            send_root_menu(waid)
+            return None
+
+        # Fallback numérico original (por si usas menús enumerados)
+        _, root_options, _ = _root_menu_parts(waid)
+        selected_idx = None
+        if is_number:
+            try:
+                num = int(body_norm)
+                if 1 <= num <= len(root_options):
+                    selected_idx = num - 1
+            except ValueError:
+                selected_idx = None
+
+        if selected_idx is not None:
+            opt = root_options[selected_idx]
+            if matches_option(opt[0], opt):  # no-op; mantiene compatibilidad
+                # Reinvoca por etiqueta para reutilizar la lógica de arriba
+                fake_raw = opt[0]
+                return _process_message_router(waid, fake_raw, norm(fake_raw), True, "synthetic")
+
+    # --------- Picker de club (miembro) -----------------------------------------------
+    if s.get("mode") == "member_pick" and s.get("awaiting") == "pick_member_club":
+        if not mclubs:
+            set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
+            send_root_menu(waid)
+            return None
+        title_pick, opts_pick, button_pick = member_club_picker_parts(mclubs)
+        numeric_choice = None
+        if is_number:
+            try:
+                num = int(body_norm)
+                if 1 <= num <= len(mclubs):
+                    numeric_choice = num - 1
+            except ValueError:
+                numeric_choice = None
+        if _is_choice(body_raw_clean, BACK_SET) or body_norm == "9":
+            set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
+            send_root_menu(waid)
+            return None
+        for idx_opt, cid in enumerate(mclubs):
+            if matches_option(body_raw_clean, opts_pick[idx_opt]) or numeric_choice == idx_opt:
+                set_session(waid, mode="member", club=cid, awaiting=None, buffer=None)
+                send_member_menu(_CTX[cid], waid)
+                return None
+        send_list_menu(waid, title_pick, opts_pick, button_pick)
+        return None
+
+    # --------- Picker de club (admin) -------------------------------------------------
+    if s.get("mode") == "admin_pick" and s.get("awaiting") == "pick_admin_club":
+        if not aclubs:
+            set_session(waid, mode="root", awaiting=None, buffer=None)
+            send_root_menu(waid)
+            return None
+        title_pick, opts_pick, button_pick = admin_club_picker_parts(aclubs)
+        numeric_choice = None
+        if is_number:
+            try:
+                num = int(body_norm)
+                if 1 <= num <= len(aclubs):
+                    numeric_choice = num - 1
+            except ValueError:
+                numeric_choice = None
+        if _is_choice(body_raw_clean, BACK_SET) or body_norm == "9":
+            set_session(waid, mode="root", awaiting=None, buffer=None)
+            send_root_menu(waid)
+            return None
+        for idx_opt, cid in enumerate(aclubs):
+            if matches_option(body_raw_clean, opts_pick[idx_opt]) or numeric_choice == idx_opt:
+                set_session(waid, mode="admin", club=cid, awaiting=None)
+                send_admin_menu(_CTX[cid], waid)
+                return None
+        send_list_menu(waid, title_pick, opts_pick, button_pick)
+        return None
+
+    # --------- Menú de miembro --------------------------------------------------------
+    if s.get("mode") == "member" and current_cid and current_cid in _CTX:
+        ctx_member = _CTX[current_cid]
+        _, member_options, _ = _member_menu_parts(ctx_member)
+
+        numeric_choice = None
+        if is_number:
+            try:
+                num = int(body_norm)
+                if num == 9:
+                    numeric_choice = len(member_options) - 1
+                elif 1 <= num <= len(member_options):
+                    numeric_choice = num - 1
+            except ValueError:
+                numeric_choice = None
+
+        # 1) 🎯 Mi rol
+        if member_options and (matches_option(body_raw_clean, member_options[0]) or numeric_choice == 0):
+            send_text(waid, who_am_i(ctx_member, waid))
+            send_member_menu(ctx_member, waid)
+            return None
+
+        # 2) 📊 Estado de la ronda
+        if len(member_options) > 1 and (matches_option(body_raw_clean, member_options[1]) or numeric_choice == 1):
+            send_text(waid, status_text(ctx_member))
+            send_member_menu(ctx_member, waid)
+            return None
+
+        # 3) 🔙 Volver
+        if matches_option(body_raw_clean, member_options[-1]) or body_norm == "9" or numeric_choice == len(member_options) - 1:
+            set_session(waid, mode="root", awaiting=None, buffer=None)
+            send_root_menu(waid)
+            return None
+
+
+    # --------- Menú admin -------------------------------------------------------------
+    if s.get("mode") == "admin" and current_cid and current_cid in _CTX:
+        ctx_admin = _CTX[current_cid]
+        _, admin_options, _ = _admin_menu_parts(ctx_admin)
+
+        # Despacho por etiqueta
+        if matches_option(body_raw_clean, admin_options[0]) or norm(body_raw_clean) == norm("▶️ Iniciar ronda"):
+            msg = start_new_round(ctx_admin, pretty_name(ctx_admin, waid))
+            send_text(waid, msg)
+            if not has_pending_invite(ctx_admin, waid) and get_session(waid).get("awaiting") is None:
+                send_admin_menu(ctx_admin, waid)
+            return None
+
+        if matches_option(body_raw_clean, admin_options[1]) or norm(body_raw_clean) == norm("📊 Ver estado"):
+            send_text(waid, status_text(ctx_admin))
+            send_admin_menu(ctx_admin, waid)
+            return None
+
+        if matches_option(body_raw_clean, admin_options[2]) or norm(body_raw_clean) == norm("🛑 Cancelar ronda"):
+            send_text(waid, cancel_round(ctx_admin, pretty_name(ctx_admin, waid)))
+            send_admin_menu(ctx_admin, waid)
+            return None
+
+        if matches_option(body_raw_clean, admin_options[3]) or norm(body_raw_clean) == norm("♻️ Resetear estado"):
+            send_text(waid, reset_all(ctx_admin, pretty_name(ctx_admin, waid)))
+            send_admin_menu(ctx_admin, waid)
+            return None
+
+        if matches_option(body_raw_clean, admin_options[4]) or norm(body_raw_clean) == norm("👥 Ver miembros"):
+            send_text(waid, admin_list_members(ctx_admin))
+            send_admin_menu(ctx_admin, waid)
+            return None
+
+        if matches_option(body_raw_clean, admin_options[5]) or norm(body_raw_clean) == norm("➕ Agregar miembro"):
+            set_session(waid, awaiting="admin_add_member", buffer=None)
+            send_text(waid, "✍️ Envía: Nombre, 55XXXXXXXX")
+            return None
+
+        if matches_option(body_raw_clean, admin_options[6]) or norm(body_raw_clean) == norm("➖ Eliminar miembro"):
+            set_session(waid, awaiting="admin_remove_member", buffer=None)
+            send_text(waid, "✍️ Envía el número de 10 dígitos o el nombre exacto a eliminar")
+            return None
+
+        if matches_option(body_raw_clean, admin_options[7]) or norm(body_raw_clean) == norm("🔁 Cambiar de club"):
+            aclubs_more = admin_clubs(waid)
+            if len(aclubs_more) > 1:
+                set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
+                title_pick, opts_pick, button_pick = admin_club_picker_parts(aclubs_more)
+                send_list_menu(waid, title_pick, opts_pick, button_pick)
+                return None
+            send_admin_menu(ctx_admin, waid)
+            return None
+
+        if _is_choice(body_raw_clean, BACK_SET) or matches_option(body_raw_clean, admin_options[-1]):
+            set_session(waid, mode="root", awaiting=None, buffer=None)
+            send_root_menu(waid)
+            return None
+
+        # Fallback numérico
+        if is_number:
+            try:
+                num = int(body_norm)
+                if 1 <= num <= len(admin_options):
+                    # Reinvoca por etiqueta correspondiente
+                    fake_raw = admin_options[num - 1][0]
+                    return _process_message_router(waid, fake_raw, norm(fake_raw), True, "synthetic")
+            except ValueError:
+                pass
+
+    # --------- Comandos atajos ---------------------------------------------------------
+    if body_norm in ("mi rol", "mi rol?", "whoami"):
+        cid = infer_user_club(waid, extract_trailing_club_id(body_raw))
+        if cid and cid in _CTX:
+            send_text(waid, who_am_i(_CTX[cid], waid))
+        else:
+            send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
+        send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
+    if body_norm in ("acepto", "accept") and ctx:
+        send_text(waid, handle_accept(ctx, waid))
+        send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
+    if body_norm in ("rechazo", "reject") and ctx:
+        send_text(waid, handle_reject(ctx, waid))
+        send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
+    # Default: re-pinta menú raíz
+    send_root_menu(waid)
+    return None
 
 # ======================================================================================
 # 6) Flask app (endpoints y webhook)
@@ -895,58 +1634,50 @@ def has_pending_invite(ctx: Ctx, waid: str) -> Optional[str]:
 def _extract_incoming_text(msg: dict) -> str:
     t = (msg.get("type") or "").lower()
 
-    # Texto plano
     if t == "text":
         body = (msg.get("text") or {}).get("body")
         return body.strip() if isinstance(body, str) else ""
 
-    # Quick replies / reply buttons (formato Gupshup)
     if t in ("button", "reply", "quick_reply"):
         container = msg.get("reply") or msg.get("button") or {}
-        # ⬇️ NUEVO: si viene como string JSON, parsearlo
         if isinstance(container, str):
             try:
                 container = json.loads(container)
             except Exception:
-                # a veces llega el título directo como string
                 return container.strip()
         if isinstance(container, dict):
             v = (
                 container.get("postbackText")
-                or container.get("payload")     # <- común en Gupshup
+                or container.get("payload")
                 or container.get("postback")
                 or container.get("id")
                 or container.get("title")
-                or container.get("text")        # "1) ✅ Aceptar"
+                or container.get("text")
             )
             return v.strip() if isinstance(v, str) else ""
         return ""
 
-    # Botones/listas "interactive" nativos de WhatsApp (reenviados por Gupshup)
     if t == "interactive":
         inter = msg.get("interactive") or {}
         if isinstance(inter, dict):
-            br = inter.get("button_reply") or inter.get("reply")
-            if isinstance(br, dict):
-                v = br.get("id") or br.get("postbackText") or br.get("title") or br.get("text")
-                return v.strip() if isinstance(v, str) else ""
             lr = inter.get("list_reply")
             if isinstance(lr, dict):
-                v = lr.get("id") or lr.get("postbackText") or lr.get("title") or lr.get("text")
+                v = lr.get("postbackText") or lr.get("title") or lr.get("id")
+                return v.strip() if isinstance(v, str) else ""
+            br = inter.get("button_reply") or inter.get("reply")
+            if isinstance(br, dict):
+                v = br.get("postbackText") or br.get("title") or br.get("text") or br.get("id")
                 return v.strip() if isinstance(v, str) else ""
         return ""
+
 
     return ""
 
 
 def _is_interactive_reply(msg: dict) -> bool:
-    """
-    True solo si el mensaje NO es texto plano y proviene de un botón/lista/quick_reply.
-    """
     t = (msg.get("type") or "").lower()
     if t in ("button", "reply", "quick_reply", "interactive"):
         return True
-    # Algunas pasarelas anidan detalles dentro de "interactive"
     inter = msg.get("interactive")
     return isinstance(inter, dict)
 
@@ -955,6 +1686,21 @@ def _is_interactive_reply(msg: dict) -> bool:
 def webhook_post():
     data = request.get_json(force=True, silent=True) or {}
     try:
+        if _is_gupshup_event(data):
+            payload = data["payload"]
+            waid = (payload.get("sender") or {}).get("phone") or payload.get("source") or ""
+            if not waid or str(waid) == str(CFG.source):
+                return jsonify({"status": "ok"})
+            body_raw = _extract_gupshup_text(payload)
+            if not body_raw:
+                return jsonify({"status": "ok"})
+            body = norm(body_raw)
+            msg_type = (payload.get("type") or "").lower()
+            resp = _process_message_router(waid, body_raw, body, _is_gupshup_interactive(payload), msg_type)
+            if resp is not None:
+                return resp
+            return jsonify({"status": "ok"})
+
         value = (
             (data.get("entry") or [{}])[0]
             .get("changes", [{}])[0]
@@ -962,7 +1708,6 @@ def webhook_post():
         )
         for msg in value.get("messages", []):
             waid = msg.get("from", "")
-            # Ignora mensajes originados por el propio número de Gupshup (evita ecos/auto-activaciones)
             if str(waid) == str(CFG.source) or not waid:
                 continue
             msg_type = (msg.get("type") or "").lower()
@@ -971,450 +1716,10 @@ def webhook_post():
             if not body_raw:
                 continue
             body = norm(body_raw)
-            log.info("Mensaje de %s: %s", waid, body)
-            s = get_session(waid)
-
-            # 0) Identificación inicial
-            is_number = re.fullmatch(r"\d{1,3}", body) is not None
-            log.debug("tipo=%s interactive=%s awaiting=%s mode=%s", msg_type, is_interactive, s.get("awaiting"), s.get("mode"))
-
-            if not s.get("club"):
-                mclubs = member_clubs(waid)
-                acls = admin_clubs(waid)
-                if len(mclubs) == 1:
-                    set_session(waid, club=mclubs[0])
-                elif len(acls) == 1:
-                    set_session(waid, club=acls[0])
-
-            current_cid = s.get("club") or infer_user_club(waid, extract_trailing_club_id(body_raw))
-            if current_cid and current_cid in _CTX:
-                ctx = _CTX[current_cid]
-            else:
-                ctx = None
-
-            # PRIORIDAD 2: Flujos awaiting (SIEMPRE antes de menús)
-            awaiting = s.get("awaiting")
-
-            # --- Flujo de invitación a rol (solo cuando hay interacción real) -------------
-            if awaiting == "invite_decision":
-                # Permite: botón quick-reply/lista o palabras claras.
-                # Permite: tap de botón (no texto) o palabras claras.
-                choice = None
-                m = re.match(r"^\s*(\d+)", body)  # body ya viene normalizado (ascii+lower)
-                if m:
-                    choice = m.group(1)
-
-                wants_accept = (choice == "1) ✅ Aceptar") or body in ("1", "acepto", "accept", "si", "sí", "ok")
-                wants_reject = (choice == "2) ❌ Rechazar") or body in ("2", "rechazo", "reject", "no", "cancelar", "cancelo")
-
-
-                if wants_accept:
-                    buffer = s.get("buffer", {})
-                    club_ctx = _CTX[buffer["club"]]
-                    role_name = buffer["role"]
-                    accept_msg = handle_accept(club_ctx, waid)
-                    send_text(waid, accept_msg)
-
-                    role_norm = role_name.lower()
-                    st_now = club_ctx.state_store.load()
-                    if "evaluador gramatical" in role_norm:
-                        set_session(
-                            waid,
-                            awaiting="word_step1_palabra",
-                            buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
-                        )
-                        send_text(waid, "📖 Envía la palabra del día:")
-                    elif "toastmaster" in role_norm or "toastmasters de la noche" in role_norm:
-                        set_session(
-                            waid,
-                            awaiting="theme_step1_topic",
-                            buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
-                        )
-                        send_text(waid, "📝 Envía la temática de la sesión:")
-                    else:
-                        set_session(waid, awaiting=None, buffer=None, mode="root")
-                        send_root_menu(waid)
-                    return jsonify({"status": "ok"})
-
-                if wants_reject:
-                    buffer = s.get("buffer", {})
-                    club_ctx = _CTX[buffer["club"]]
-                    reject_msg = handle_reject(club_ctx, waid)
-                    send_text(waid, reject_msg)
-                    set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_root_menu(waid)
-                    return jsonify({"status": "ok"})
-
-                # Si el usuario escribió un número por otro menú (texto plano) NO consumimos aquí.
-                # Solo re-mostramos el prompt si el intento fue interactivo pero inválido.
-                if is_interactive:
-                    buffer = s.get("buffer", {})
-                    club_ctx = _CTX.get(buffer.get("club"))
-                    if club_ctx:
-                        send_text(waid, "❗Opción inválida. Usa los botones: 1 Aceptar / 2 Rechazar.")
-                        title, opts = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
-                        send_menu_with_quick_replies(waid, title, opts)
-                    return jsonify({"status": "ok"})
-                # Si no es interactivo, dejamos que el router de menús siga su curso.
-
-            # Agregar miembro
-            if awaiting == "admin_add_member" and s.get("mode") == "admin" and ctx:
-                tail = body_raw.strip()
-                if "," in tail:
-                    name, num = tail.split(",", 1)
-                else:
-                    parts = tail.rsplit(" ", 1)
-                    if len(parts) != 2:
-                        send_text(waid, "Formato no válido. Usa: Nombre, 55XXXXXXXX")
-                        continue
-                    name, num = parts[0], parts[1]
-                out = admin_add_member(ctx, name.strip(), num.strip())
-                send_text(waid, out)
-                set_session(waid, awaiting=None, buffer=None)
-                send_admin_menu(ctx, waid)
-                continue
-
-            # Eliminar miembro
-            if awaiting == "admin_remove_member" and s.get("mode") == "admin" and ctx:
-                tail = body_raw.strip()
-                out = admin_remove_member(ctx, tail)
-                send_text(waid, out)
-                set_session(waid, awaiting=None, buffer=None)
-                send_admin_menu(ctx, waid)
-                continue
-
-            # ============ FLUJO: Palabra del Día ============
-            if awaiting == "word_step1_palabra":
-                buffer = s.get("buffer", {})
-                buffer["palabra"] = body_raw.strip()
-                set_session(waid, awaiting="word_step2_significado", buffer=buffer)
-                send_text(waid, "✍️ Envía el significado de la palabra:")
-                continue
-
-            if awaiting == "word_step2_significado":
-                buffer = s.get("buffer", {})
-                buffer["significado"] = body_raw.strip()
-                set_session(waid, awaiting="word_step3_ejemplo", buffer=buffer)
-                send_text(waid, "💡 Envía un ejemplo de uso de la palabra:")
-                continue
-
-            if awaiting == "word_step3_ejemplo":
-                buffer = s.get("buffer", {})
-                buffer["ejemplo"] = body_raw.strip()
-                set_session(waid, awaiting="word_confirm", buffer=buffer)
-
-                resumen = (
-                    f"📋 Resumen de Palabra del Día\n\n"
-                    f"📖 Palabra: {buffer['palabra']}\n\n"
-                    f"✍️ Significado: {buffer['significado']}\n\n"
-                    f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar palabra\n"
-                    f"3) ✏️ Editar significado\n"
-                    f"4) ✏️ Editar ejemplo"
-                )
-                send_text(waid, resumen)
-                continue
-
-            if awaiting == "word_confirm" and is_number:
-                buffer = s.get("buffer", {})
-                if body == "1":
-                    club_ctx = _CTX[buffer["club"]]
-                    st = club_ctx.state_store.load()
-                    st["word_of_the_day"] = {
-                        "palabra": buffer["palabra"],
-                        "significado": buffer["significado"],
-                        "ejemplo": buffer["ejemplo"],
-                        "waid": buffer["waid"],
-                        "nombre": pretty_name(club_ctx, buffer["waid"]),
-                        "round": buffer["round"]
-                    }
-                    club_ctx.state_store.save(st)
-                    send_text(waid, f"✅ Palabra del día guardada: '{buffer['palabra']}'")
-                    set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_root_menu(waid)
-                    continue
-                elif body == "2":
-                    set_session(waid, awaiting="word_edit_palabra", buffer=buffer)
-                    send_text(waid, f"📖 Palabra actual: {buffer['palabra']}\nEnvía la nueva palabra:")
-                    continue
-                elif body == "3":
-                    set_session(waid, awaiting="word_edit_significado", buffer=buffer)
-                    send_text(waid, f"✍️ Significado actual: {buffer['significado']}\nEnvía el nuevo significado:")
-                    continue
-                elif body == "4":
-                    set_session(waid, awaiting="word_edit_ejemplo", buffer=buffer)
-                    send_text(waid, f"💡 Ejemplo actual: {buffer['ejemplo']}\nEnvía el nuevo ejemplo:")
-                    continue
-                else:
-                    send_text(waid, "Opción inválida. Envía 1, 2, 3 o 4.")
-                    continue
-
-            if awaiting == "word_edit_palabra":
-                buffer = s.get("buffer", {})
-                buffer["palabra"] = body_raw.strip()
-                set_session(waid, awaiting="word_confirm", buffer=buffer)
-                resumen = (
-                    f"📋 Resumen de Palabra del Día\n\n"
-                    f"📖 Palabra: {buffer['palabra']}\n\n"
-                    f"✍️ Significado: {buffer['significado']}\n\n"
-                    f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar palabra\n"
-                    f"3) ✏️ Editar significado\n"
-                    f"4) ✏️ Editar ejemplo"
-                )
-                send_text(waid, resumen)
-                continue
-
-            if awaiting == "word_edit_significado":
-                buffer = s.get("buffer", {})
-                buffer["significado"] = body_raw.strip()
-                set_session(waid, awaiting="word_confirm", buffer=buffer)
-                resumen = (
-                    f"📋 Resumen de Palabra del Día\n\n"
-                    f"📖 Palabra: {buffer['palabra']}\n\n"
-                    f"✍️ Significado: {buffer['significado']}\n\n"
-                    f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar palabra\n"
-                    f"3) ✏️ Editar significado\n"
-                    f"4) ✏️ Editar ejemplo"
-                )
-                send_text(waid, resumen)
-                continue
-
-            if awaiting == "word_edit_ejemplo":
-                buffer = s.get("buffer", {})
-                buffer["ejemplo"] = body_raw.strip()
-                set_session(waid, awaiting="word_confirm", buffer=buffer)
-                resumen = (
-                    f"📋 Resumen de Palabra del Día\n\n"
-                    f"📖 Palabra: {buffer['palabra']}\n\n"
-                    f"✍️ Significado: {buffer['significado']}\n\n"
-                    f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar palabra\n"
-                    f"3) ✏️ Editar significado\n"
-                    f"4) ✏️ Editar ejemplo"
-                )
-                send_text(waid, resumen)
-                continue
-
-            # ============ FLUJO: Temática de la Sesión ============
-            if awaiting == "theme_step1_topic":
-                buffer = s.get("buffer", {})
-                buffer["topic"] = body_raw.strip()
-                set_session(waid, awaiting="theme_confirm", buffer=buffer)
-
-                resumen = (
-                    f"📝 Temática de la sesión: {buffer['topic']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar temática"
-                )
-                send_text(waid, resumen)
-                continue
-
-            if awaiting == "theme_confirm" and is_number:
-                buffer = s.get("buffer", {})
-                if body == "1":
-                    club_ctx = _CTX[buffer["club"]]
-                    st = club_ctx.state_store.load()
-                    st["session_theme"] = {
-                        "topic": buffer["topic"],
-                        "waid": buffer["waid"],
-                        "nombre": pretty_name(club_ctx, buffer["waid"]),
-                        "round": buffer["round"]
-                    }
-                    club_ctx.state_store.save(st)
-                    send_text(waid, f"✅ Temática guardada: '{buffer['topic']}'")
-                    set_session(waid, awaiting=None, buffer=None, mode="root")
-                    send_root_menu(waid)
-                    continue
-                elif body == "2":
-                    set_session(waid, awaiting="theme_edit_topic", buffer=buffer)
-                    send_text(waid, f"📝 Temática actual: {buffer['topic']}\nEnvía la nueva temática:")
-                    continue
-                else:
-                    send_text(waid, "Opción inválida. Envía 1 o 2.")
-                    continue
-
-            if awaiting == "theme_edit_topic":
-                buffer = s.get("buffer", {})
-                buffer["topic"] = body_raw.strip()
-                set_session(waid, awaiting="theme_confirm", buffer=buffer)
-                resumen = (
-                    f"📝 Temática de la sesión: {buffer['topic']}\n\n"
-                    f"Elige:\n"
-                    f"1) 💾 Guardar\n"
-                    f"2) ✏️ Editar temática"
-                )
-                send_text(waid, resumen)
-                continue
-            # ============ FIN Temática de la Sesión ============
-
-            # Si había awaiting pero no coincidió con ningún flujo, caemos a menús.
-
-            # PRIORIDAD 3: Router por sesión (menús numéricos)
-            if is_number:
-                # Menú raíz
-                if s.get("mode") == "root":
-                    idx = 1
-                    mclubs = member_clubs(waid)
-                    aclubs = admin_clubs(waid)
-                    if mclubs:
-                        if body == str(idx):
-                            if len(mclubs) == 1:
-                                cid = mclubs[0]
-                                set_session(waid, mode="member", club=cid, awaiting=None)
-                                send_member_menu(_CTX[cid], waid); continue
-                            set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
-                            send_text(waid, render_member_club_picker(mclubs)); continue
-                        idx += 1
-                    if aclubs:
-                        if len(aclubs) == 1:
-                            if body == str(idx):
-                                set_session(waid, mode="admin", club=aclubs[0], awaiting=None)
-                                send_admin_menu(_CTX[aclubs[0]], waid); continue
-                            idx += 1
-                        else:
-                            if body == str(idx):
-                                set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
-                                send_text(waid, render_admin_club_picker(aclubs)); continue
-                            idx += 1
-                    if body == str(idx):
-                        # Mi estado de rol — resumen sin menús para evitar colisión
-                        cid = s.get("club") or infer_user_club(waid)
-                        if cid and cid in _CTX and len(member_clubs(waid)) <= 1:
-                            send_text(waid, who_am_i_summary(_CTX[cid], waid))
-                        else:
-                            mclubs = member_clubs(waid)
-                            if mclubs:
-                                lines = []
-                                for c in mclubs:
-                                    lines.append(who_am_i_summary(_CTX[c], waid))
-                                send_text(waid, "\n".join(lines))
-                            else:
-                                if cid and cid in _CTX:
-                                    send_text(waid, who_am_i_summary(_CTX[cid], waid))
-                                else:
-                                    send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
-                        send_root_menu(waid)
-                        continue
-
-                # Picker miembro multi-club
-                if s.get("mode") == "member_pick" and s.get("awaiting") == "pick_member_club":
-                    mclubs = member_clubs(waid)
-                    if not mclubs:
-                        set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
-                        send_root_menu(waid); continue
-                    if body == "9":
-                        set_session(waid, mode="root", awaiting=None, buffer=None, club=None)
-                        send_root_menu(waid); continue
-                    try:
-                        idx = int(body) - 1
-                        cid = mclubs[idx]
-                        set_session(waid, mode="member", club=cid, awaiting=None, buffer=None)
-                        send_member_menu(_CTX[cid], waid); continue
-                    except Exception:
-                        send_text(waid, render_member_club_picker(mclubs)); continue
-
-                # Picker admin multi-club
-                if s.get("mode") == "admin_pick" and s.get("awaiting") == "pick_admin_club":
-                    aclubs = admin_clubs(waid)
-                    if body == "9":
-                        set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_root_menu(waid); continue
-                    try:
-                        idx = int(body) - 1
-                        cid = aclubs[idx]
-                        set_session(waid, mode="admin", club=cid, awaiting=None)
-                        send_admin_menu(_CTX[cid], waid); continue
-                    except Exception:
-                        send_text(waid, render_admin_club_picker(aclubs)); continue
-
-                # Menú miembro
-                if s.get("mode") == "member" and current_cid and current_cid in _CTX:
-                    ctx = _CTX[current_cid]
-                    if body == "1":
-                        send_text(waid, who_am_i(ctx, waid))
-                        send_member_menu(ctx, waid); continue
-                    if body == "2":
-                        send_text(waid, status_text(ctx))
-                        send_member_menu(ctx, waid); continue
-                    if body == "9":
-                        set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_root_menu(waid); continue
-
-                # Menú admin
-                if s.get("mode") == "admin" and current_cid and current_cid in _CTX:
-                    ctx = _CTX[current_cid]
-                    if body == "1":
-                        msg = start_new_round(ctx, pretty_name(ctx, waid))
-                        send_text(waid, msg)
-                        # Evita colisión: si ahora el admin tiene invitación pendiente o está en un flujo, no spamees el menú
-                        if not has_pending_invite(ctx, waid) and get_session(waid).get("awaiting") is None:
-                            send_admin_menu(ctx, waid)
-                        continue
-                    if body == "2":
-                        send_text(waid, status_text(ctx))
-                        send_admin_menu(ctx, waid); continue
-                    if body == "3":
-                        send_text(waid, cancel_round(ctx, pretty_name(ctx, waid)))
-                        send_admin_menu(ctx, waid); continue
-                    if body == "4":
-                        send_text(waid, reset_all(ctx, pretty_name(ctx, waid)))
-                        send_admin_menu(ctx, waid); continue
-                    if body == "5":
-                        send_text(waid, admin_list_members(ctx))
-                        send_admin_menu(ctx, waid); continue
-                    if body == "6":
-                        set_session(waid, awaiting="admin_add_member", buffer=None)
-                        send_text(waid, "✍️ Envía: Nombre, 55XXXXXXXX")
-                        continue
-                    if body == "7":
-                        set_session(waid, awaiting="admin_remove_member", buffer=None)
-                        send_text(waid, "✍️ Envía el número de 10 dígitos o el nombre exacto a eliminar")
-                        continue
-                    if body == "8":
-                        aclubs = admin_clubs(waid)
-                        if len(aclubs) > 1:
-                            set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
-                            send_text(waid, render_admin_club_picker(aclubs)); continue
-                        send_admin_menu(ctx, waid); continue
-                    if body == "9":
-                        set_session(waid, mode="root", awaiting=None, buffer=None)
-                        send_root_menu(waid); continue
-    
-
-            # PRIORIDAD 4: Comandos legacy
-
-            if body in ("mi rol", "mi rol?", "whoami"):
-                cid = infer_user_club(waid, extract_trailing_club_id(body_raw))
-                if cid and cid in _CTX:
-                    send_text(waid, who_am_i(_CTX[cid], waid))
-                else:
-                    send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
-                send_root_menu(waid)
-                continue
-
-            if body in ("acepto", "accept") and ctx:
-                send_text(waid, handle_accept(ctx, waid))
-                send_root_menu(waid)
-                continue
-
-            if body in ("rechazo", "reject") and ctx:
-                send_text(waid, handle_reject(ctx, waid))
-                send_root_menu(waid)
-                continue
-
-            # FALLBACK: menú principal
-            send_root_menu(waid)
+            resp = _process_message_router(waid, body_raw, body, is_interactive, msg_type)
+            if resp is not None:
+                return resp
+            continue
 
     except Exception:
         log.exception("Error procesando webhook; payload=%s", data)
