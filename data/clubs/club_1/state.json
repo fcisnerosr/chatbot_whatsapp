@@ -1,10 +1,12 @@
 {
-  "round": 11,
+  "round": 7,
   "pending": {
     "Toastmasters de la noche": {
-      "candidate": "5215634948177",
-      "declined_by": [],
-      "accepted": true
+      "candidate": "5219212671618",
+      "declined_by": [
+        "5215634948177"
+      ],
+      "accepted": false
     },
     "Evaluador gramatical": {
       "candidate": "5212721073312",
@@ -22,12 +24,7 @@
       "accepted": false
     }
   },
-  "accepted": {
-    "Toastmasters de la noche": {
-      "waid": "5215634948177",
-      "name": "Roger"
-    }
-  },
+  "accepted": {},
   "members_cycle": {
     "5219212671618": [],
     "5212293655442": [],
@@ -40,9 +37,9 @@
   "last_summary": null,
   "canceled": false,
   "session_theme": {
-    "topic": "A",
+    "topic": "Prueba",
     "waid": "5215634948177",
     "nombre": "Roger",
-    "round": 11
+    "round": 6
   }
 }

@@ -693,6 +693,8 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
 
     ctx.state_store.save(st)
 
+    broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] ▶️ Iniciamos la ronda #{st['round']}.")
+
     for role, info in st["pending"].items():
         cand = info["candidate"]
         begin_invite_flow(ctx, cand, role, st["round"])
@@ -706,7 +708,6 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
             "Agrega más miembros o intenta de nuevo."
         )
 
-    broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] ▶️ Iniciamos la ronda #{st['round']}.")
     return f"Ronda #{st['round']} iniciada en {ctx.club_id}."
 
 
@@ -1007,17 +1008,86 @@ def invite_text(ctx: Ctx, role: str, round_no: int) -> str:
 
 
 def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
+    current = get_session(waid)
+    prev_mode = current.get("mode") if current else None
+    prev_club = current.get("club") if current else None
     set_session(
         waid,
         awaiting="invite_decision",
-        buffer={"role": role, "waid": waid, "club": ctx.club_id, "round": round_no},
+        buffer={
+            "role": role,
+            "waid": waid,
+            "club": ctx.club_id,
+            "round": round_no,
+            "prev_mode": prev_mode,
+            "prev_club": prev_club,
+        },
     )
-    title, options, button = invite_menu_parts(ctx, role, round_no)
-    send_list_menu(waid, title, options, button)
+    title, options, _ = invite_menu_parts(ctx, role, round_no)
+    send_text(waid, invite_text(ctx, role, round_no))
+    send_menu_with_quick_replies(waid, title, [opt[0] for opt in options])
 
 
 def send_invite_menu(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
     begin_invite_flow(ctx, waid, role, round_no)
+
+
+def _resume_after_invite(waid: str, buffer: dict, default_mode: str = "root") -> None:
+    prev_mode = buffer.get("prev_mode")
+    prev_club = buffer.get("prev_club") or buffer.get("club")
+    target_mode = prev_mode or default_mode
+    session_updates: dict = {"awaiting": None, "buffer": None, "mode": target_mode}
+    if prev_club:
+        session_updates["club"] = prev_club
+    set_session(waid, **session_updates)
+
+    ctx = _CTX.get(prev_club) if prev_club else None
+    if target_mode == "admin" and ctx:
+        send_admin_menu(ctx, waid)
+    elif target_mode == "member" and ctx:
+        send_member_menu(ctx, waid)
+    else:
+        send_root_menu(waid)
+
+
+def _theme_confirm_summary(buffer: dict) -> str:
+    return (
+        f"📝 Temática de la sesión: {buffer['topic']}\n\n"
+        f"Elige:\n"
+        f"1) 💾 Guardar\n"
+        f"2) ✏️ Editar temática"
+    )
+
+
+def _send_theme_confirm_prompt(waid: str, buffer: dict) -> None:
+    summary = _theme_confirm_summary(buffer)
+    send_text(waid, summary)
+    send_menu_with_quick_replies(waid, "Elige una opción", ["💾 Guardar", "✏️ Editar temática"])
+
+
+def _word_confirm_summary(buffer: dict) -> str:
+    return (
+        f"📋 Resumen de Palabra del Día\n\n"
+        f"📖 Palabra: {buffer['palabra']}\n\n"
+        f"✍️ Significado: {buffer['significado']}\n\n"
+        f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
+        f"Elige:\n"
+        f"1) 💾 Guardar\n"
+        f"2) ✏️ Editar palabra\n"
+        f"3) ✏️ Editar significado\n"
+        f"4) ✏️ Editar ejemplo"
+    )
+
+
+def _send_word_confirm_menu(waid: str, buffer: dict) -> None:
+    summary = _word_confirm_summary(buffer)
+    send_text(waid, summary)
+    send_list_menu(
+        waid,
+        "📋 Palabra del Día",
+        ["💾 Guardar", "✏️ Editar palabra", "✏️ Editar significado", "✏️ Editar ejemplo"],
+        button="Elige una opción",
+    )
 
 
 # ======================================================================================
@@ -1044,6 +1114,11 @@ def _process_message_router(
         s.get("mode"),
     )
 
+    if body_norm == "home":
+        set_session(waid, awaiting=None, buffer=None, mode="root")
+        send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
     # Si llega sólo el título del listado ("Menú principal") ignóralo y vuelve a pintar
     if _is_choice(body_raw_clean, _set_norm(["Menú principal"])):
         send_root_menu(waid)
@@ -1067,8 +1142,8 @@ def _process_message_router(
         accept_option = ("✅ Aceptar", "Confirmar rol")
         reject_option = ("❌ Rechazar", "Ceder a otra persona")
 
-        wants_accept = matches_option(body_raw_clean, accept_option) or body_norm in ("1", "acepto", "accept", "si", "sí", "ok")
-        wants_reject = matches_option(body_raw_clean, reject_option) or body_norm in ("2", "rechazo", "reject", "no", "cancelar", "cancelo")
+        wants_accept = matches_option(body_raw_clean, accept_option) or body_norm in ("1", "acepto", "aceptar", "accept", "si", "sí", "ok")
+        wants_reject = matches_option(body_raw_clean, reject_option) or body_norm in ("2", "rechazo", "rechazar", "reject", "no", "cancelar", "cancelo")
 
         if wants_accept:
             buffer = s.get("buffer", {})
@@ -1094,8 +1169,7 @@ def _process_message_router(
                 )
                 send_text(waid, "📝 Envía la temática de la sesión:")
             else:
-                set_session(waid, awaiting=None, buffer=None, mode="root")
-                send_root_menu(waid)
+                _resume_after_invite(waid, buffer)
             return jsonify({"status": "ok"})
 
         if wants_reject:
@@ -1103,8 +1177,7 @@ def _process_message_router(
             club_ctx = _CTX[buffer["club"]]
             reject_msg = handle_reject(club_ctx, waid)
             send_text(waid, reject_msg)
-            set_session(waid, awaiting=None, buffer=None, mode="root")
-            send_root_menu(waid)
+            _resume_after_invite(waid, buffer)
             return jsonify({"status": "ok"})
 
         if is_interactive:
@@ -1112,8 +1185,8 @@ def _process_message_router(
             club_ctx = _CTX.get(buffer.get("club"))
             if club_ctx:
                 send_text(waid, "❗Opción inválida. Usa los botones: ✅ Aceptar / ❌ Rechazar.")
-                title, opts, button = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
-                send_list_menu(waid, title, opts, button)
+                title, opts, _ = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
+                send_menu_with_quick_replies(waid, title, [opt[0] for opt in opts])
             return jsonify({"status": "ok"})
 
     # --------- Flujos admin de agregar/eliminar miembros --------------------------------
@@ -1143,6 +1216,9 @@ def _process_message_router(
 
     # --------- Flujos Palabra del día / Temática ---------------------------------------
     if awaiting == "word_step1_palabra":
+        if is_interactive:
+            send_text(waid, "Escribe la palabra del día con texto, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["palabra"] = body_raw.strip()
         set_session(waid, awaiting="word_step2_significado", buffer=buffer)
@@ -1150,6 +1226,9 @@ def _process_message_router(
         return None
 
     if awaiting == "word_step2_significado":
+        if is_interactive:
+            send_text(waid, "Escribe el significado manualmente, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["significado"] = body_raw.strip()
         set_session(waid, awaiting="word_step3_ejemplo", buffer=buffer)
@@ -1157,27 +1236,24 @@ def _process_message_router(
         return None
 
     if awaiting == "word_step3_ejemplo":
+        if is_interactive:
+            send_text(waid, "Escribe un ejemplo en texto, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["ejemplo"] = body_raw.strip()
         set_session(waid, awaiting="word_confirm", buffer=buffer)
-        resumen = (
-            f"📋 Resumen de Palabra del Día\n\n"
-            f"📖 Palabra: {buffer['palabra']}\n\n"
-            f"✍️ Significado: {buffer['significado']}\n\n"
-            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar palabra\n"
-            f"3) ✏️ Editar significado\n"
-            f"4) ✏️ Editar ejemplo"
-        )
-        send_text(waid, resumen)
+        _send_word_confirm_menu(waid, buffer)
         return None
 
-    if awaiting == "word_confirm" and is_number:
+    if awaiting == "word_confirm":
         buffer = s.get("buffer", {})
-        choice = body_norm
-        if choice == "1":
+        options = ["💾 Guardar", "✏️ Editar palabra", "✏️ Editar significado", "✏️ Editar ejemplo"]
+        wants_save = matches_option(body_raw_clean, options[0]) or body_norm == "1"
+        wants_edit_word = matches_option(body_raw_clean, options[1]) or body_norm == "2"
+        wants_edit_meaning = matches_option(body_raw_clean, options[2]) or body_norm == "3"
+        wants_edit_example = matches_option(body_raw_clean, options[3]) or body_norm == "4"
+
+        if wants_save:
             club_ctx = _CTX[buffer["club"]]
             st = club_ctx.state_store.load()
             st["word_of_the_day"] = {
@@ -1193,91 +1269,72 @@ def _process_message_router(
             set_session(waid, awaiting=None, buffer=None, mode="root")
             send_root_menu(waid)
             return None
-        if choice == "2":
+        if wants_edit_word:
             set_session(waid, awaiting="word_edit_palabra", buffer=buffer)
             send_text(waid, f"📖 Palabra actual: {buffer['palabra']}\nEnvía la nueva palabra:")
             return None
-        if choice == "3":
+        if wants_edit_meaning:
             set_session(waid, awaiting="word_edit_significado", buffer=buffer)
             send_text(waid, f"✍️ Significado actual: {buffer['significado']}\nEnvía el nuevo significado:")
             return None
-        if choice == "4":
+        if wants_edit_example:
             set_session(waid, awaiting="word_edit_ejemplo", buffer=buffer)
             send_text(waid, f"💡 Ejemplo actual: {buffer['ejemplo']}\nEnvía el nuevo ejemplo:")
             return None
-        send_text(waid, "Opción inválida. Envía 1, 2, 3 o 4.")
+        if is_interactive:
+            send_text(waid, "❗Opción inválida. Usa la lista.")
+            _send_word_confirm_menu(waid, buffer)
+        else:
+            send_text(waid, "Opción inválida. Envía 1, 2, 3 o 4.")
         return None
 
     if awaiting == "word_edit_palabra":
+        if is_interactive:
+            send_text(waid, "Escribe la nueva palabra directamente, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["palabra"] = body_raw.strip()
         set_session(waid, awaiting="word_confirm", buffer=buffer)
-        resumen = (
-            f"📋 Resumen de Palabra del Día\n\n"
-            f"📖 Palabra: {buffer['palabra']}\n\n"
-            f"✍️ Significado: {buffer['significado']}\n\n"
-            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar palabra\n"
-            f"3) ✏️ Editar significado\n"
-            f"4) ✏️ Editar ejemplo"
-        )
-        send_text(waid, resumen)
+        _send_word_confirm_menu(waid, buffer)
         return None
 
     if awaiting == "word_edit_significado":
+        if is_interactive:
+            send_text(waid, "Escribe el nuevo significado manualmente, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["significado"] = body_raw.strip()
         set_session(waid, awaiting="word_confirm", buffer=buffer)
-        resumen = (
-            f"📋 Resumen de Palabra del Día\n\n"
-            f"📖 Palabra: {buffer['palabra']}\n\n"
-            f"✍️ Significado: {buffer['significado']}\n\n"
-            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar palabra\n"
-            f"3) ✏️ Editar significado\n"
-            f"4) ✏️ Editar ejemplo"
-        )
-        send_text(waid, resumen)
+        _send_word_confirm_menu(waid, buffer)
         return None
 
     if awaiting == "word_edit_ejemplo":
+        if is_interactive:
+            send_text(waid, "Escribe el nuevo ejemplo en texto, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["ejemplo"] = body_raw.strip()
         set_session(waid, awaiting="word_confirm", buffer=buffer)
-        resumen = (
-            f"📋 Resumen de Palabra del Día\n\n"
-            f"📖 Palabra: {buffer['palabra']}\n\n"
-            f"✍️ Significado: {buffer['significado']}\n\n"
-            f"💡 Ejemplo: {buffer['ejemplo']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar palabra\n"
-            f"3) ✏️ Editar significado\n"
-            f"4) ✏️ Editar ejemplo"
-        )
-        send_text(waid, resumen)
+        _send_word_confirm_menu(waid, buffer)
         return None
 
     if awaiting == "theme_step1_topic":
+        if is_interactive:
+            send_text(waid, "Escribe la temática de la sesión con texto, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["topic"] = body_raw.strip()
         set_session(waid, awaiting="theme_confirm", buffer=buffer)
-        resumen = (
-            f"📝 Temática de la sesión: {buffer['topic']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar temática"
-        )
-        send_text(waid, resumen)
+        _send_theme_confirm_prompt(waid, buffer)
         return None
 
-    if awaiting == "theme_confirm" and is_number:
+    if awaiting == "theme_confirm":
         buffer = s.get("buffer", {})
-        if body_norm == "1":
+        options = ["💾 Guardar", "✏️ Editar temática"]
+        wants_save = matches_option(body_raw_clean, options[0]) or body_norm == "1"
+        wants_edit = matches_option(body_raw_clean, options[1]) or body_norm == "2"
+
+        if wants_save:
             club_ctx = _CTX[buffer["club"]]
             st = club_ctx.state_store.load()
             st["session_theme"] = {
@@ -1291,24 +1348,25 @@ def _process_message_router(
             set_session(waid, awaiting=None, buffer=None, mode="root")
             send_root_menu(waid)
             return None
-        if body_norm == "2":
+        if wants_edit:
             set_session(waid, awaiting="theme_edit_topic", buffer=buffer)
             send_text(waid, f"📝 Temática actual: {buffer['topic']}\nEnvía la nueva temática:")
             return None
-        send_text(waid, "Opción inválida. Envía 1 o 2.")
+        if is_interactive:
+            send_text(waid, "❗Opción inválida. Usa los botones: 💾 Guardar / ✏️ Editar temática.")
+            _send_theme_confirm_prompt(waid, buffer)
+        else:
+            send_text(waid, "Opción inválida. Envía 1 o 2.")
         return None
 
     if awaiting == "theme_edit_topic":
+        if is_interactive:
+            send_text(waid, "Escribe la nueva temática con texto, sin usar botones.")
+            return None
         buffer = s.get("buffer", {})
         buffer["topic"] = body_raw.strip()
         set_session(waid, awaiting="theme_confirm", buffer=buffer)
-        resumen = (
-            f"📝 Temática de la sesión: {buffer['topic']}\n\n"
-            f"Elige:\n"
-            f"1) 💾 Guardar\n"
-            f"2) ✏️ Editar temática"
-        )
-        send_text(waid, resumen)
+        _send_theme_confirm_prompt(waid, buffer)
         return None
 
     # --------- Menú raíz: despacho directo por etiqueta -------------------------------
