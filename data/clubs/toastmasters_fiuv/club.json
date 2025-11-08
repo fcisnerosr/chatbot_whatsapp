@@ -1,0 +1,65 @@
+{
+  "members": [
+    {
+      "name": "Daniel",
+      "waid": "5219212671618",
+      "is_guest": false,
+      "level": 1,
+      "roles_done": []
+    },
+    {
+      "name": "Paco",
+      "waid": "5212293655442",
+      "is_guest": false,
+      "level": 2,
+      "roles_done": [
+        "Evaluador gramatical"
+      ]
+    },
+    {
+      "name": "Marcos",
+      "waid": "5212721073312",
+      "is_guest": false,
+      "level": 2,
+      "roles_done": [
+        "Evaluador del tiempo"
+      ]
+    },
+    {
+      "name": "Sheila",
+      "waid": "5219211787763",
+      "is_guest": false,
+      "level": 1,
+      "roles_done": []
+    },
+    {
+      "name": "Roger",
+      "waid": "5215634948177",
+      "is_guest": false,
+      "level": 6,
+      "roles_done": [
+        "Evaluador de muletillas",
+        "Evaluador gramatical",
+        "Toastmasters de la noche"
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "name": "Evaluador del tiempo",
+      "difficulty": 1
+    },
+    {
+      "name": "Evaluador de muletillas",
+      "difficulty": 2
+    },
+    {
+      "name": "Evaluador gramatical",
+      "difficulty": 3
+    },
+    {
+      "name": "Toastmasters de la noche",
+      "difficulty": 4
+    }
+  ]
+}

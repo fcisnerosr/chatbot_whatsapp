@@ -1777,6 +1777,22 @@ def _process_message_router(
             send_root_menu(waid)
             return jsonify({"status": "ok"})
 
+        # 4) Detección de opciones de menú de miembro desde root -> redirigir
+        if _is_choice(body_raw_clean, MEM_SPEECH_SET) or _is_choice(body_raw_clean, MEM_EDUCATION_SET):
+            log.info("✓ Detectado: Opción de menú de miembro desde root - redirigiendo a menú de miembro")
+            send_text(waid, "ℹ️ Esta opción está disponible en el Menú de miembro. Te llevo allí...")
+            if len(mclubs) == 1:
+                cid = mclubs[0]
+                set_session(waid, mode="member", club=cid, awaiting=None)
+                send_member_menu(_CTX[cid], waid)
+                return jsonify({"status": "ok"})
+            else:
+                # Múltiples clubs - mostrar picker
+                set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
+                title_pick, opts_pick, button_pick = member_club_picker_parts(mclubs)
+                send_list_menu(waid, title_pick, opts_pick, button_pick)
+                return jsonify({"status": "ok"})
+
         # Fallback numérico original (por si usas menús enumerados)
         _, root_options, _ = _root_menu_parts(waid)
         selected_idx = None
@@ -1851,8 +1867,11 @@ def _process_message_router(
 
     # --------- Menú de miembro --------------------------------------------------------
     if s.get("mode") == "member" and current_cid and current_cid in _CTX:
+        log.info("✓ Entrando en modo 'member' para club: %s", current_cid)
         ctx_member = _CTX[current_cid]
         _, member_options, _ = _member_menu_parts(ctx_member)
+        log.info("Opciones del menú de miembro: %s", [opt[0] if isinstance(opt, tuple) else opt for opt in member_options])
+        log.info("Mensaje recibido: '%s'", body_raw_clean)
 
         numeric_choice = None
         if is_number:
@@ -1866,25 +1885,34 @@ def _process_message_router(
                 numeric_choice = None
 
         # 1) 🎯 Mi rol
-        if member_options and (matches_option(body_raw_clean, member_options[0]) or numeric_choice == 0):
+        match_1 = matches_option(body_raw_clean, member_options[0]) if member_options else False
+        log.info("¿Match opción 1? %s (numeric: %s)", match_1, numeric_choice == 0)
+        if member_options and (match_1 or numeric_choice == 0):
+            log.info("✓ Detectado: Opción 1 - Mi rol")
             send_text(waid, who_am_i(ctx_member, waid))
             send_member_menu(ctx_member, waid)
-            return None
+            return jsonify({"status": "ok"})
 
         # 2) 📊 Estado de la ronda
-        if len(member_options) > 1 and (matches_option(body_raw_clean, member_options[1]) or numeric_choice == 1):
+        match_2 = matches_option(body_raw_clean, member_options[1]) if len(member_options) > 1 else False
+        log.info("¿Match opción 2? %s (numeric: %s)", match_2, numeric_choice == 1)
+        if len(member_options) > 1 and (match_2 or numeric_choice == 1):
+            log.info("✓ Detectado: Opción 2 - Estado de la ronda")
             send_text(waid, status_text(ctx_member))
             send_member_menu(ctx_member, waid)
-            return None
+            return jsonify({"status": "ok"})
 
         # 3) 🎤 Quiero dar un discurso preparado
-        if len(member_options) > 2 and (matches_option(body_raw_clean, member_options[2]) or numeric_choice == 2):
+        match_3 = matches_option(body_raw_clean, member_options[2]) if len(member_options) > 2 else False
+        log.info("¿Match opción 3? %s (numeric: %s)", match_3, numeric_choice == 2)
+        if len(member_options) > 2 and (match_3 or numeric_choice == 2):
+            log.info("✓ Detectado: Opción 3 - Discurso preparado")
             st = ctx_member.state_store.load()
             can_add, error_msg = _can_add_speech(st, waid)
             if not can_add:
                 send_text(waid, error_msg)
                 send_member_menu(ctx_member, waid)
-                return None
+                return jsonify({"status": "ok"})
             
             # Iniciar flujo de captura de discurso preparado
             set_session(waid, awaiting="speech_step1_pathway", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
@@ -1897,16 +1925,19 @@ def _process_message_router(
                 "Visionary Communication"
             ]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
-            return None
+            return jsonify({"status": "ok"})
 
         # 4) 📚 Quiero dar una Sección Educativa
-        if len(member_options) > 3 and (matches_option(body_raw_clean, member_options[3]) or numeric_choice == 3):
+        match_4 = matches_option(body_raw_clean, member_options[3]) if len(member_options) > 3 else False
+        log.info("¿Match opción 4? %s (numeric: %s)", match_4, numeric_choice == 3)
+        if len(member_options) > 3 and (match_4 or numeric_choice == 3):
+            log.info("✓ Detectado: Opción 4 - Sección Educativa")
             st = ctx_member.state_store.load()
             can_add, error_msg = _can_add_section(st, waid)
             if not can_add:
                 send_text(waid, error_msg)
                 send_member_menu(ctx_member, waid)
-                return None
+                return jsonify({"status": "ok"})
             
             # Iniciar flujo de captura de sección educativa
             set_session(waid, awaiting="section_step1_serie", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
@@ -1917,13 +1948,22 @@ def _process_message_router(
                 ("💡 Tema libre", "Cualquier tema educativo")
             ]
             send_list_menu(waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
-            return None
+            return jsonify({"status": "ok"})
 
         # 5) 🔙 Volver
-        if matches_option(body_raw_clean, member_options[-1]) or body_norm == "9" or numeric_choice == len(member_options) - 1:
+        match_5 = matches_option(body_raw_clean, member_options[-1]) if member_options else False
+        log.info("¿Match opción 5 (Volver)? %s (numeric: %s == %s)", match_5, numeric_choice, len(member_options) - 1)
+        if match_5 or body_norm == "9" or numeric_choice == len(member_options) - 1:
+            log.info("✓ Detectado: Opción 5 - Volver")
             set_session(waid, mode="root", awaiting=None, buffer=None)
             send_root_menu(waid)
-            return None
+            return jsonify({"status": "ok"})
+
+        # Si está en modo member pero no matcheó ninguna opción, mostrar advertencia y quedarse en el menú
+        log.warning("⚠️  En modo member pero mensaje no reconocido: '%s'", body_raw[:100])
+        send_member_menu(ctx_member, waid)
+        return jsonify({"status": "ok"})
+            # return None
 
 
     # --------- Menú admin -------------------------------------------------------------
