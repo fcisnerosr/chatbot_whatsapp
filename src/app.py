@@ -338,6 +338,11 @@ def matches_option(user_raw: str, option: str | Tuple[str, str]) -> bool:
             if not tail or tail.startswith(("\n", "-", "—", ":", " ")):
                 return True
 
+    # 3b) NUEVO: Si la etiqueta empieza con lo que envió el usuario (texto truncado)
+    # Ej: usuario envía "🎤 Quiero dar un discurso" y label es "🎤 Quiero dar un discurso preparado"
+    if len(u_norm) >= 10 and label_norm.startswith(u_norm):
+        return True
+
     # 4) Fallback numérico
     opt_digit = re.match(r"^\s*(\d+)", label)
     user_digit = re.match(r"^\s*(\d+)", u)
@@ -1231,9 +1236,10 @@ def _process_message_router(
 
     # Si llega sólo el título del botón ("Menú de miembro") ignoralo y vuelve a pintar
     if _is_choice(body_raw_clean, _set_norm(["Menú de miembro"])):
-        log.info("Usuario hizo clic en botón 'Menú de miembro' - reenviando menú")
+        log.info("Usuario hizo clic en botón 'Menú de miembro' - cambiando a modo member")
         current_cid_temp = s.get("club") or infer_user_club(waid)
         if current_cid_temp and current_cid_temp in _CTX:
+            set_session(waid, mode="member", club=current_cid_temp, awaiting=None)
             send_member_menu(_CTX[current_cid_temp], waid)
         else:
             send_root_menu(waid)
@@ -1241,9 +1247,10 @@ def _process_message_router(
 
     # Si llega sólo el título del botón ("Menú de admin") ignoralo y vuelve a pintar
     if _is_choice(body_raw_clean, _set_norm(["Menú de admin"])):
-        log.info("Usuario hizo clic en botón 'Menú de admin' - reenviando menú")
+        log.info("Usuario hizo clic en botón 'Menú de admin' - cambiando a modo admin")
         current_cid_temp = s.get("club") or infer_user_club(waid)
         if current_cid_temp and current_cid_temp in _CTX:
+            set_session(waid, mode="admin", club=current_cid_temp, awaiting=None)
             send_admin_menu(_CTX[current_cid_temp], waid)
         else:
             send_root_menu(waid)
@@ -1498,63 +1505,101 @@ def _process_message_router(
     
     # Paso 1: Pathway
     if awaiting == "speech_step1_pathway":
+        log.info("🎯 Step 1 - Pathway recibido: '%s' (interactive: %s, type: %s)", body_raw.strip(), is_interactive, msg_type)
+        
+        # Lista de pathways válidos
+        valid_pathways = [
+            "Dynamic Leadership",
+            "Engaging Humor",
+            "Motivational Strategies",
+            "Persuasive Influence",
+            "Presentation Mastery",
+            "Visionary Communication"
+        ]
+        
+        pathway_text = body_raw.strip()
+        
+        # Ignorar el clic en el botón de la lista SOLO si no es un pathway válido
+        pathway_button_texts = ["Seleccionar pathway", "Elige una opción", "Opciones"]
+        if pathway_text in pathway_button_texts or norm(pathway_text) in [norm(t) for t in pathway_button_texts]:
+            log.info("⏩ Ignorando clic en botón de lista, esperando selección de pathway")
+            return jsonify({"status": "ok"})
+        
+        # Verificar si es un pathway válido
+        matched_pathway = None
+        if pathway_text in valid_pathways:
+            matched_pathway = pathway_text
+        else:
+            # Intentar match parcial (por si WhatsApp trunca)
+            for vp in valid_pathways:
+                if norm(pathway_text) == norm(vp) or (len(pathway_text) > 10 and norm(vp).startswith(norm(pathway_text))):
+                    matched_pathway = vp
+                    break
+        
+        if not matched_pathway:
+            log.warning("❌ Pathway inválido recibido: '%s'", pathway_text)
+            send_text(waid, f"❌ Pathway inválido. Por favor selecciona uno de la lista.")
+            send_list_menu(waid, "📚 Selecciona tu Pathway:", valid_pathways, "Seleccionar pathway")
+            return jsonify({"status": "ok"})
+        
         buffer = s.get("buffer", {})
-        buffer["pathway"] = body_raw.strip()
+        buffer["pathway"] = matched_pathway
+        log.info("✅ Pathway guardado: %s - Avanzando al paso 2 (nivel)", matched_pathway)
         set_session(waid, awaiting="speech_step2_nivel", buffer=buffer)
         send_menu_with_quick_replies(waid, "📊 Selecciona el nivel de tu proyecto:", ["1", "2", "3", "4", "5"])
-        return None
+        return jsonify({"status": "ok"})
     
     # Paso 2: Nivel
     if awaiting == "speech_step2_nivel":
         if is_interactive:
             send_text(waid, "Por favor selecciona un nivel del 1 al 5 usando los botones.")
-            return None
+            return jsonify({"status": "ok"})
         if not is_number or body_norm not in ["1", "2", "3", "4", "5"]:
             send_text(waid, "❌ Nivel inválido. Envía un número del 1 al 5.")
             send_menu_with_quick_replies(waid, "📊 Selecciona el nivel:", ["1", "2", "3", "4", "5"])
-            return None
+            return jsonify({"status": "ok"})
         buffer = s.get("buffer", {})
         buffer["nivel"] = int(body_norm)
         set_session(waid, awaiting="speech_step3_proyecto", buffer=buffer)
         send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Comunicación en Crisis'")
-        return None
+        return jsonify({"status": "ok"})
     
     # Paso 3: Nombre del proyecto
     if awaiting == "speech_step3_proyecto":
         if is_interactive:
             send_text(waid, "Escribe el nombre del proyecto con texto, sin usar botones.")
-            return None
+            return jsonify({"status": "ok"})
         buffer = s.get("buffer", {})
         buffer["proyecto"] = body_raw.strip()
         set_session(waid, awaiting="speech_step4_titulo", buffer=buffer)
         send_text(waid, "📢 Envía el título de tu discurso:\n\nEjemplo: 'Cómo influir con integridad'")
-        return None
+        return jsonify({"status": "ok"})
     
     # Paso 4: Título del discurso
     if awaiting == "speech_step4_titulo":
         if is_interactive:
             send_text(waid, "Escribe el título del discurso con texto, sin usar botones.")
-            return None
+            return jsonify({"status": "ok"})
         buffer = s.get("buffer", {})
         buffer["titulo"] = body_raw.strip()
         set_session(waid, awaiting="speech_step5_duracion", buffer=buffer)
         send_text(waid, "⏱️ Envía la duración de tu discurso:\n\nFormato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
-        return None
+        return jsonify({"status": "ok"})
     
     # Paso 5: Duración
     if awaiting == "speech_step5_duracion":
         if is_interactive:
             send_text(waid, "Escribe la duración con texto en formato min-max, sin usar botones.")
-            return None
+            return jsonify({"status": "ok"})
         duration_text = body_raw.strip()
         # Validar formato min-max
         if "-" not in duration_text:
             send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
-            return None
+            return jsonify({"status": "ok"})
         parts = duration_text.split("-")
         if len(parts) != 2:
             send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
-            return None
+            return jsonify({"status": "ok"})
         try:
             min_time = int(parts[0].strip())
             max_time = int(parts[1].strip())
