@@ -249,6 +249,7 @@ def pending_candidates(st: dict, exclude_role: Optional[str] = None) -> Set[str]
 
 
 def send_text(to_e164_no_plus: str, text: str) -> dict:
+    log.info("→ Enviando texto a %s: %s", mx_public_from_internal(to_e164_no_plus), text[:100])
     url = "https://api.gupshup.io/wa/api/v1/msg"
     data = {
         "channel": "whatsapp",
@@ -357,6 +358,8 @@ ROOT_STATUS_SET = _set_norm(["📌 Mi estado de rol", "Mi estado de rol"])
 BACK_SET        = _set_norm(["🔙 Volver", "Volver"])
 MEM_ROLE_SET    = _set_norm(["🎯 Mi rol", "Mi rol"])
 MEM_STATUS_SET  = _set_norm(["📊 Estado de la ronda", "Estado de la ronda"])
+MEM_SPEECH_SET  = _set_norm(["🎤 Quiero dar un discurso preparado", "Quiero dar un discurso preparado", "Discurso preparado"])
+MEM_EDUCATION_SET = _set_norm(["📚 Quiero dar una Sección Educativa", "Quiero dar una Sección Educativa", "Sección Educativa"])
 
 def _is_choice(body_raw: str, target_set: Set[str]) -> bool:
     raw = (body_raw or "").strip()
@@ -379,6 +382,7 @@ def send_list_menu(
     options: List[str | Tuple[str, str]],
     button: str = "Elige una opción",
 ) -> dict:
+    log.info("→ Enviando menú lista a %s: %s (opciones: %d)", mx_public_from_internal(to_e164_no_plus), title[:60], len(options))
     menu_text = _build_menu_text(title, options)
     if not options:
         return send_text(to_e164_no_plus, menu_text)
@@ -428,6 +432,7 @@ def send_list_menu(
     try:
         resp = requests.post(url, headers=HEADERS_FORM, data=data, timeout=15)
         if resp.ok:
+            log.info("✓ Menú lista enviado correctamente")
             return resp.json()
         log.warning("Gupshup list %s: %s", resp.status_code, resp.text)
     except RequestException:
@@ -928,6 +933,8 @@ def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
     options: List[Tuple[str, str]] = [
         ("🎯 Mi rol", "Pendiente o confirmado"),
         ("📊 Estado de la ronda", "Resumen y pendientes"),
+        ("🎤 Quiero dar un discurso preparado", "Registrar discurso de pathway"),
+        ("📚 Quiero dar una Sección Educativa", "Registrar sección educativa"),
         ("🔙 Volver", "Regresar al menú principal"),
     ]
     return title, options, "Menú de miembro"
@@ -1091,6 +1098,104 @@ def _send_word_confirm_menu(waid: str, buffer: dict) -> None:
 
 
 # ======================================================================================
+# 5.0 Gestión de Discursos Preparados y Secciones Educativas
+# ======================================================================================
+
+def _get_speeches_and_sections(st: dict) -> Tuple[list, list]:
+    """Retorna (lista_discursos, lista_secciones) del state actual."""
+    speeches = st.get("prepared_speeches", [])
+    sections = st.get("educational_sections", [])
+    return speeches, sections
+
+
+def _can_add_speech(st: dict, waid: str) -> Tuple[bool, str]:
+    """
+    Valida si se puede agregar un discurso preparado.
+    Retorna (puede_agregar, mensaje_error)
+    """
+    speeches, sections = _get_speeches_and_sections(st)
+    
+    # 1. Verificar si el miembro ya tiene discurso
+    if any(s.get("waid") == waid for s in speeches):
+        return False, "❌ Ya tienes un discurso preparado registrado para esta sesión."
+    
+    # 2. Verificar si el miembro ya tiene sección educativa
+    if any(s.get("waid") == waid for s in sections):
+        return False, "❌ No puedes dar un discurso preparado si ya tienes una sección educativa."
+    
+    # 3. Verificar límite de 3 discursos
+    if len(speeches) >= 3:
+        return False, "❌ Ya se alcanzó el límite de 3 discursos preparados para esta sesión."
+    
+    # 4. Verificar incompatibilidad: si hay sección educativa, solo 1 discurso
+    if len(sections) > 0 and len(speeches) >= 1:
+        return False, "❌ Solo se permite 1 discurso cuando hay una sección educativa en la sesión."
+    
+    return True, ""
+
+
+def _can_add_section(st: dict, waid: str) -> Tuple[bool, str]:
+    """
+    Valida si se puede agregar una sección educativa.
+    Retorna (puede_agregar, mensaje_error)
+    """
+    speeches, sections = _get_speeches_and_sections(st)
+    
+    # 1. Verificar si el miembro ya tiene sección educativa
+    if any(s.get("waid") == waid for s in sections):
+        return False, "❌ Ya tienes una sección educativa registrada para esta sesión."
+    
+    # 2. Verificar si el miembro ya tiene discurso
+    if any(s.get("waid") == waid for s in speeches):
+        return False, "❌ No puedes dar una sección educativa si ya tienes un discurso preparado."
+    
+    # 3. Solo puede haber 1 sección educativa
+    if len(sections) >= 1:
+        return False, "❌ Ya hay una sección educativa registrada para esta sesión."
+    
+    # 4. Verificar incompatibilidad: si hay 2+ discursos, no se permite sección
+    if len(speeches) >= 2:
+        return False, "❌ No se permite sección educativa cuando hay 2 o más discursos preparados."
+    
+    return True, ""
+
+
+def _revoke_incompatible_roles(ctx: Ctx, waid: str) -> List[str]:
+    """
+    Revoca roles incompatibles (Toastmaster, Evaluador gramatical) si el miembro
+    registra discurso o sección educativa. Retorna lista de roles revocados.
+    """
+    incompatible_roles = ["Toastmasters de la noche", "Evaluador gramatical"]
+    revoked = []
+    
+    st = ctx.state_store.load()
+    
+    # Verificar en roles aceptados
+    for role in incompatible_roles:
+        if role in st.get("accepted", {}) and st["accepted"][role].get("waid") == waid:
+            del st["accepted"][role]
+            revoked.append(role)
+            log.info(f"Revocado rol aceptado '{role}' de {waid} por incompatibilidad con discurso/sección")
+    
+    # Verificar en roles pendientes
+    for role in incompatible_roles:
+        if role in st.get("pending", {}) and st["pending"][role].get("candidate") == waid:
+            # Marcar como rechazado automáticamente
+            st["pending"][role]["declined_by"] = st["pending"][role].get("declined_by", [])
+            if waid not in st["pending"][role]["declined_by"]:
+                st["pending"][role]["declined_by"].append(waid)
+            st["pending"][role]["candidate"] = None
+            st["pending"][role]["accepted"] = False
+            revoked.append(role)
+            log.info(f"Revocado rol pendiente '{role}' de {waid} por incompatibilidad con discurso/sección")
+    
+    if revoked:
+        ctx.state_store.save(st)
+    
+    return revoked
+
+
+# ======================================================================================
 # 5.1 Router MENÚS con despacho por etiqueta
 # ======================================================================================
 
@@ -1106,12 +1211,11 @@ def _process_message_router(
     log.info("Mensaje de %s: %s", waid, body_norm)
 
     is_number = re.fullmatch(r"\d{1,3}", body_norm) is not None
-    log.debug(
-        "tipo=%s interactive=%s awaiting=%s mode=%s",
-        msg_type,
-        is_interactive,
-        s.get("awaiting"),
+    log.info(
+        "📋 Sesión actual: mode=%s, awaiting=%s, club=%s",
         s.get("mode"),
+        s.get("awaiting"),
+        s.get("club"),
     )
 
     if body_norm == "home":
@@ -1121,8 +1225,29 @@ def _process_message_router(
 
     # Si llega sólo el título del listado ("Menú principal") ignóralo y vuelve a pintar
     if _is_choice(body_raw_clean, _set_norm(["Menú principal"])):
+        log.info("Usuario hizo clic en botón 'Menú principal' - reenviando menú")
         send_root_menu(waid)
-        return None
+        return jsonify({"status": "ok"})
+
+    # Si llega sólo el título del botón ("Menú de miembro") ignoralo y vuelve a pintar
+    if _is_choice(body_raw_clean, _set_norm(["Menú de miembro"])):
+        log.info("Usuario hizo clic en botón 'Menú de miembro' - reenviando menú")
+        current_cid_temp = s.get("club") or infer_user_club(waid)
+        if current_cid_temp and current_cid_temp in _CTX:
+            send_member_menu(_CTX[current_cid_temp], waid)
+        else:
+            send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
+    # Si llega sólo el título del botón ("Menú de admin") ignoralo y vuelve a pintar
+    if _is_choice(body_raw_clean, _set_norm(["Menú de admin"])):
+        log.info("Usuario hizo clic en botón 'Menú de admin' - reenviando menú")
+        current_cid_temp = s.get("club") or infer_user_club(waid)
+        if current_cid_temp and current_cid_temp in _CTX:
+            send_admin_menu(_CTX[current_cid_temp], waid)
+        else:
+            send_root_menu(waid)
+        return jsonify({"status": "ok"})
 
     if not s.get("club"):
         mclubs = member_clubs(waid)
@@ -1369,6 +1494,240 @@ def _process_message_router(
         _send_theme_confirm_prompt(waid, buffer)
         return None
 
+    # --------- Flujos Discurso Preparado ----------------------------------------------
+    
+    # Paso 1: Pathway
+    if awaiting == "speech_step1_pathway":
+        buffer = s.get("buffer", {})
+        buffer["pathway"] = body_raw.strip()
+        set_session(waid, awaiting="speech_step2_nivel", buffer=buffer)
+        send_menu_with_quick_replies(waid, "📊 Selecciona el nivel de tu proyecto:", ["1", "2", "3", "4", "5"])
+        return None
+    
+    # Paso 2: Nivel
+    if awaiting == "speech_step2_nivel":
+        if is_interactive:
+            send_text(waid, "Por favor selecciona un nivel del 1 al 5 usando los botones.")
+            return None
+        if not is_number or body_norm not in ["1", "2", "3", "4", "5"]:
+            send_text(waid, "❌ Nivel inválido. Envía un número del 1 al 5.")
+            send_menu_with_quick_replies(waid, "📊 Selecciona el nivel:", ["1", "2", "3", "4", "5"])
+            return None
+        buffer = s.get("buffer", {})
+        buffer["nivel"] = int(body_norm)
+        set_session(waid, awaiting="speech_step3_proyecto", buffer=buffer)
+        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Comunicación en Crisis'")
+        return None
+    
+    # Paso 3: Nombre del proyecto
+    if awaiting == "speech_step3_proyecto":
+        if is_interactive:
+            send_text(waid, "Escribe el nombre del proyecto con texto, sin usar botones.")
+            return None
+        buffer = s.get("buffer", {})
+        buffer["proyecto"] = body_raw.strip()
+        set_session(waid, awaiting="speech_step4_titulo", buffer=buffer)
+        send_text(waid, "📢 Envía el título de tu discurso:\n\nEjemplo: 'Cómo influir con integridad'")
+        return None
+    
+    # Paso 4: Título del discurso
+    if awaiting == "speech_step4_titulo":
+        if is_interactive:
+            send_text(waid, "Escribe el título del discurso con texto, sin usar botones.")
+            return None
+        buffer = s.get("buffer", {})
+        buffer["titulo"] = body_raw.strip()
+        set_session(waid, awaiting="speech_step5_duracion", buffer=buffer)
+        send_text(waid, "⏱️ Envía la duración de tu discurso:\n\nFormato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
+        return None
+    
+    # Paso 5: Duración
+    if awaiting == "speech_step5_duracion":
+        if is_interactive:
+            send_text(waid, "Escribe la duración con texto en formato min-max, sin usar botones.")
+            return None
+        duration_text = body_raw.strip()
+        # Validar formato min-max
+        if "-" not in duration_text:
+            send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
+            return None
+        parts = duration_text.split("-")
+        if len(parts) != 2:
+            send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
+            return None
+        try:
+            min_time = int(parts[0].strip())
+            max_time = int(parts[1].strip())
+            if min_time <= 0 or max_time <= 0 or min_time > max_time:
+                raise ValueError()
+        except ValueError:
+            send_text(waid, "❌ Los tiempos deben ser números positivos válidos, con mínimo menor que máximo.")
+            return None
+        
+        buffer = s.get("buffer", {})
+        buffer["duracion_min"] = min_time
+        buffer["duracion_max"] = max_time
+        set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+        send_text(waid, "👤 Envía el nombre de tu evaluador:\n\nEjemplo: María González")
+        return None
+    
+    # Paso 6: Evaluador
+    if awaiting == "speech_step6_evaluador":
+        if is_interactive:
+            send_text(waid, "Escribe el nombre del evaluador con texto, sin usar botones.")
+            return None
+        buffer = s.get("buffer", {})
+        buffer["evaluador"] = body_raw.strip()
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        
+        # Mostrar resumen y confirmación
+        resumen = (
+            f"📋 *Resumen de tu solicitud de discurso preparado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+            f"¿Es correcta esta información?"
+        )
+        send_text(waid, resumen)
+        send_menu_with_quick_replies(waid, "Confirma tu solicitud:", ["✅ Confirmar", "❌ Cancelar"])
+        return None
+    
+    # Confirmación de discurso
+    if awaiting == "speech_confirm":
+        buffer = s.get("buffer", {})
+        wants_confirm = matches_option(body_raw_clean, ("✅ Confirmar", "Confirmar")) or body_norm in ("1", "confirmar", "si", "sí", "ok")
+        wants_cancel = matches_option(body_raw_clean, ("❌ Cancelar", "Cancelar")) or body_norm in ("2", "cancelar", "no")
+        
+        if wants_confirm:
+            club_ctx = _CTX[buffer["club"]]
+            
+            # Revocar roles incompatibles
+            revoked = _revoke_incompatible_roles(club_ctx, waid)
+            
+            # Guardar discurso
+            st = club_ctx.state_store.load()
+            if "prepared_speeches" not in st:
+                st["prepared_speeches"] = []
+            
+            speech_data = {
+                "waid": buffer["waid"],
+                "nombre": pretty_name(club_ctx, buffer["waid"]),
+                "pathway": buffer["pathway"],
+                "nivel": buffer["nivel"],
+                "proyecto": buffer["proyecto"],
+                "titulo": buffer["titulo"],
+                "duracion_min": buffer["duracion_min"],
+                "duracion_max": buffer["duracion_max"],
+                "evaluador": buffer["evaluador"],
+                "round": buffer["round"]
+            }
+            st["prepared_speeches"].append(speech_data)
+            club_ctx.state_store.save(st)
+            
+            msg = f"✅ Discurso preparado registrado exitosamente.\n\n📢 Título: '{buffer['titulo']}'"
+            if revoked:
+                msg += f"\n\n⚠️ Se revocaron los siguientes roles por incompatibilidad: {', '.join(revoked)}"
+            
+            send_text(waid, msg)
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        if wants_cancel:
+            send_text(waid, "❌ Solicitud de discurso cancelada.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        if is_interactive:
+            send_text(waid, "❗Opción inválida. Usa los botones: ✅ Confirmar / ❌ Cancelar.")
+        else:
+            send_text(waid, "Opción inválida. Envía 1 para confirmar o 2 para cancelar.")
+        return None
+
+    # --------- Flujos Sección Educativa -----------------------------------------------
+    
+    # Paso 1: Serie
+    if awaiting == "section_step1_serie":
+        buffer = s.get("buffer", {})
+        buffer["serie"] = body_raw.strip()
+        set_session(waid, awaiting="section_step2_nombre", buffer=buffer)
+        send_text(waid, "📝 Envía el nombre de la sección educativa que presentarás:\n\nEjemplo: 'Cómo dar retroalimentación efectiva'")
+        return None
+    
+    # Paso 2: Nombre de la sección
+    if awaiting == "section_step2_nombre":
+        if is_interactive:
+            send_text(waid, "Escribe el nombre de la sección con texto, sin usar botones.")
+            return None
+        buffer = s.get("buffer", {})
+        buffer["nombre_seccion"] = body_raw.strip()
+        set_session(waid, awaiting="section_confirm", buffer=buffer)
+        
+        # Mostrar resumen y confirmación
+        resumen = (
+            f"📋 *Resumen de tu Sección Educativa*\n\n"
+            f"📚 Serie: {buffer['serie']}\n"
+            f"📝 Nombre: {buffer['nombre_seccion']}\n"
+            f"⏱️ Duración: 10-20 minutos (fijo)\n\n"
+            f"¿Es correcta esta información?"
+        )
+        send_text(waid, resumen)
+        send_menu_with_quick_replies(waid, "Confirma tu solicitud:", ["✅ Confirmar", "❌ Cancelar"])
+        return None
+    
+    # Confirmación de sección educativa
+    if awaiting == "section_confirm":
+        buffer = s.get("buffer", {})
+        wants_confirm = matches_option(body_raw_clean, ("✅ Confirmar", "Confirmar")) or body_norm in ("1", "confirmar", "si", "sí", "ok")
+        wants_cancel = matches_option(body_raw_clean, ("❌ Cancelar", "Cancelar")) or body_norm in ("2", "cancelar", "no")
+        
+        if wants_confirm:
+            club_ctx = _CTX[buffer["club"]]
+            
+            # Revocar roles incompatibles
+            revoked = _revoke_incompatible_roles(club_ctx, waid)
+            
+            # Guardar sección educativa
+            st = club_ctx.state_store.load()
+            if "educational_sections" not in st:
+                st["educational_sections"] = []
+            
+            section_data = {
+                "waid": buffer["waid"],
+                "nombre": pretty_name(club_ctx, buffer["waid"]),
+                "serie": buffer["serie"],
+                "nombre_seccion": buffer["nombre_seccion"],
+                "duracion": "10-20 minutos",
+                "round": buffer["round"]
+            }
+            st["educational_sections"].append(section_data)
+            club_ctx.state_store.save(st)
+            
+            msg = f"✅ Sección Educativa registrada exitosamente.\n\n📚 Nombre: '{buffer['nombre_seccion']}'"
+            if revoked:
+                msg += f"\n\n⚠️ Se revocaron los siguientes roles por incompatibilidad: {', '.join(revoked)}"
+            
+            send_text(waid, msg)
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        if wants_cancel:
+            send_text(waid, "❌ Solicitud de sección educativa cancelada.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        if is_interactive:
+            send_text(waid, "❗Opción inválida. Usa los botones: ✅ Confirmar / ❌ Cancelar.")
+        else:
+            send_text(waid, "Opción inválida. Envía 1 para confirmar o 2 para cancelar.")
+        return None
+
     # --------- Menú raíz: despacho directo por etiqueta -------------------------------
     mclubs = member_clubs(waid)
     aclubs = admin_clubs(waid)
@@ -1376,30 +1735,33 @@ def _process_message_router(
     if s.get("mode") == "root":
         # 1) Miembro
         if _is_choice(body_raw_clean, ROOT_MEMBER_SET):
+            log.info("✓ Detectado: Opción 'Menú de miembro' desde menú raíz")
             if len(mclubs) == 1:
                 cid = mclubs[0]
                 set_session(waid, mode="member", club=cid, awaiting=None)
                 send_member_menu(_CTX[cid], waid)
-                return None
+                return jsonify({"status": "ok"})
             set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
             title_pick, opts_pick, button_pick = member_club_picker_parts(mclubs)
             send_list_menu(waid, title_pick, opts_pick, button_pick)
-            return None
+            return jsonify({"status": "ok"})
 
         # 2) Admin
         if _is_choice(body_raw_clean, ROOT_ADMIN_SET):
+            log.info("✓ Detectado: Opción 'Menú de admin' desde menú raíz")
             if len(aclubs) == 1:
                 cid = aclubs[0]
                 set_session(waid, mode="admin", club=cid, awaiting=None)
                 send_admin_menu(_CTX[cid], waid)
-                return None
+                return jsonify({"status": "ok"})
             set_session(waid, mode="admin_pick", awaiting="pick_admin_club")
             title_pick, opts_pick, button_pick = admin_club_picker_parts(aclubs)
             send_list_menu(waid, title_pick, opts_pick, button_pick)
-            return None
+            return jsonify({"status": "ok"})
 
         # 3) Estado
         if _is_choice(body_raw_clean, ROOT_STATUS_SET):
+            log.info("✓ Detectado: Opción 'Mi estado de rol' desde menú raíz")
             cid = s.get("club") or infer_user_club(waid)
             if cid and cid in _CTX and len(mclubs) <= 1:
                 send_text(waid, who_am_i_summary(_CTX[cid], waid))
@@ -1413,7 +1775,7 @@ def _process_message_router(
                     else:
                         send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
             send_root_menu(waid)
-            return None
+            return jsonify({"status": "ok"})
 
         # Fallback numérico original (por si usas menús enumerados)
         _, root_options, _ = _root_menu_parts(waid)
@@ -1515,7 +1877,49 @@ def _process_message_router(
             send_member_menu(ctx_member, waid)
             return None
 
-        # 3) 🔙 Volver
+        # 3) 🎤 Quiero dar un discurso preparado
+        if len(member_options) > 2 and (matches_option(body_raw_clean, member_options[2]) or numeric_choice == 2):
+            st = ctx_member.state_store.load()
+            can_add, error_msg = _can_add_speech(st, waid)
+            if not can_add:
+                send_text(waid, error_msg)
+                send_member_menu(ctx_member, waid)
+                return None
+            
+            # Iniciar flujo de captura de discurso preparado
+            set_session(waid, awaiting="speech_step1_pathway", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
+            pathways = [
+                "Dynamic Leadership",
+                "Engaging Humor",
+                "Motivational Strategies",
+                "Persuasive Influence",
+                "Presentation Mastery",
+                "Visionary Communication"
+            ]
+            send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
+            return None
+
+        # 4) 📚 Quiero dar una Sección Educativa
+        if len(member_options) > 3 and (matches_option(body_raw_clean, member_options[3]) or numeric_choice == 3):
+            st = ctx_member.state_store.load()
+            can_add, error_msg = _can_add_section(st, waid)
+            if not can_add:
+                send_text(waid, error_msg)
+                send_member_menu(ctx_member, waid)
+                return None
+            
+            # Iniciar flujo de captura de sección educativa
+            set_session(waid, awaiting="section_step1_serie", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
+            series = [
+                ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
+                ("🎖️ Serie del club exitoso", "Gestión de clubes"),
+                ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
+                ("💡 Tema libre", "Cualquier tema educativo")
+            ]
+            send_list_menu(waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
+            return None
+
+        # 5) 🔙 Volver
         if matches_option(body_raw_clean, member_options[-1]) or body_norm == "9" or numeric_choice == len(member_options) - 1:
             set_session(waid, mode="root", awaiting=None, buffer=None)
             send_root_menu(waid)
@@ -1612,8 +2016,9 @@ def _process_message_router(
         return jsonify({"status": "ok"})
 
     # Default: re-pinta menú raíz
+    log.warning("⚠️  Mensaje no reconocido - reenviando menú raíz: '%s'", body_raw[:100])
     send_root_menu(waid)
-    return None
+    return jsonify({"status": "ok"})
 
 # ======================================================================================
 # 6) Flask app (endpoints y webhook)

@@ -14,8 +14,10 @@
       "accepted": false
     },
     "Evaluador de muletillas": {
-      "candidate": "5212293655442",
-      "declined_by": [],
+      "candidate": "5215634948177",
+      "declined_by": [
+        "5212293655442"
+      ],
       "accepted": false
     },
     "Evaluador del tiempo": {
