@@ -6,7 +6,7 @@
 # - Parser robusto de Gupshup (list_reply/button/quick_reply) → extrae id/postbackText/title/reply.
 # - Despacho directo por etiquetas visibles (p. ej., "🛠️ Menú de admin") SIN depender del orden del menú.
 # - Coincidencia basada en norm() (sin acentos/emoji) + soporte numérico previo.
-# - Menús de "miembro", "admin" y "volver" también matchean por etiqueta.
+# - Menús de "socio", "admin" y "volver" también matchean por etiqueta.
 # - IDs de opciones = norm(label) para garantizar retorno estable.
 #
 # .env mínimo:
@@ -187,7 +187,7 @@ def load_club_into_registry(club_id: str, meta: dict):
         members_index={m.waid for m in c.members},
     )
     _CTX[club_id] = ctx
-    log.info("Cargado club %s (miembros=%d, admins=%d)", club_id, len(ctx.members_index), len(ctx.admins))
+    log.info("Cargado club %s (socios=%d, admins=%d)", club_id, len(ctx.members_index), len(ctx.admins))
 
 
 def load_all_clubs():
@@ -357,7 +357,7 @@ def matches_option(user_raw: str, option: str | Tuple[str, str]) -> bool:
 def _set_norm(labels: List[str]) -> Set[str]:
     return {norm(x) for x in labels}
 
-ROOT_MEMBER_SET = _set_norm(["👤 Menú de miembro", "Menú de miembro"])
+ROOT_MEMBER_SET = _set_norm(["👤 Menú de socio", "Menú de socio"])
 ROOT_ADMIN_SET  = _set_norm(["🛠️ Menú de admin", "Menú de admin"])
 ROOT_STATUS_SET = _set_norm(["📌 Mi estado de rol", "Mi estado de rol"])
 BACK_SET        = _set_norm(["🔙 Volver", "Volver"])
@@ -600,8 +600,8 @@ def choose_candidate_hier(ctx: Ctx, role: str, excluded: Set[str]) -> Optional[s
 
 def admin_list_members(ctx: Ctx) -> str:
     if not ctx.club.members:
-        return f"No hay miembros registrados aún en {ctx.club_id}."
-    lines = [f"👥 Miembros de {ctx.club_id}"]
+        return f"No hay socios registrados aún en {ctx.club_id}."
+    lines = [f"👥 Socios de {ctx.club_id}"]
     for m in ctx.club.members:
         pub = mx_public_from_internal(m.waid)
         lines.append(f"- {m.name} — {pub}  · nivel {getattr(m, 'level', 1)}")
@@ -723,7 +723,7 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
         broadcast_text(
             ctx.admins,
             f"[{ctx.club_id}] Algunos roles quedaron sin candidato: {', '.join(not_assigned)}. "
-            "Agrega más miembros o intenta de nuevo."
+            "Agrega más socios o intenta de nuevo."
         )
 
     return f"Ronda #{st['round']} iniciada en {ctx.club_id}."
@@ -829,7 +829,7 @@ def who_am_i_summary(ctx: Ctx, waid: str) -> str:
         if info["candidate"] == waid and not info["accepted"]:
             return (
                 f"[{ctx.club_id}] 🔔 Tienes una invitación pendiente: {role} en la ronda #{st['round']} ({ctx.club_id}).\n"
-                f"👉 Ve al Menú de miembro ({ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
             )
     for role, acc in st["accepted"].items():
         if acc["waid"] == waid:
@@ -923,7 +923,7 @@ def _root_menu_parts(waid: str) -> Tuple[str, List[Tuple[str, str]], str]:
     header = "Asistente de asignación de roles: Menú principal. Elija una opción"
     if mclubs:
         desc = f"Club único: {mclubs[0]}" if len(mclubs) == 1 else "Elegir club"
-        options.append(("👤 Menú de miembro", desc))
+        options.append(("👤 Menú de socio", desc))
     if aclubs:
         desc = f"Club único: {aclubs[0]}" if len(aclubs) == 1 else "Elegir club"
         options.append(("🛠️ Menú de admin", desc))
@@ -942,7 +942,7 @@ def send_root_menu(waid: str) -> dict:
 
 
 def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
-    title = f"Asistente de asignación de roles: Menú de miembro [{ctx.club_id}]. Elija una opción"
+    title = f"Asistente de asignación de roles: Menú de socio [{ctx.club_id}]. Elija una opción"
     options: List[Tuple[str, str]] = [
         ("🎯 Mi rol", "Pendiente o confirmado"),
         ("📊 Estado de la ronda", "Resumen y pendientes"),
@@ -950,7 +950,7 @@ def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
         ("📚 Quiero dar una Sección Educativa", "Registrar sección educativa"),
         ("🔙 Volver", "Regresar al menú principal"),
     ]
-    return title, options, "Menú de miembro"
+    return title, options, "Menú de socio"
 
 def render_member_menu(ctx: Ctx) -> str:
     title, options, _ = _member_menu_parts(ctx)
@@ -963,7 +963,7 @@ def send_member_menu(ctx: Ctx, waid: str) -> dict:
 
 
 def member_club_picker_parts(mclubs: List[str]) -> Tuple[str, List[Tuple[str, str]], str]:
-    title = "Asistente de asignación de roles: Selecciona club para menú de miembro. Elija una opción"
+    title = "Asistente de asignación de roles: Selecciona club para menú de socio. Elija una opción"
     options: List[Tuple[str, str]] = [(cid, "Seleccionar este club") for cid in mclubs]
     options.append(("🔙 Volver", "Regresar al menú principal"))
     return title, options, "Elegir club"
@@ -993,9 +993,9 @@ def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
         ("📊 Ver estado", "Resumen actual y pendientes"),
         ("🛑 Cancelar ronda", "Borrar pendientes y aceptados"),
         ("♻️ Resetear estado", "Reiniciar club a cero"),
-        ("👥 Ver miembros", "Lista y niveles"),
-        ("➕ Agregar miembro", "Nombre y teléfono"),
-        ("➖ Eliminar miembro", "Por nombre o número"),
+        ("👥 Ver socios", "Lista y niveles"),
+        ("➕ Agregar socio", "Nombre y teléfono"),
+        ("➖ Eliminar socio", "Por nombre o número"),
         ("🔁 Cambiar de club", "Seleccionar otro club"),
         ("🔙 Volver", "Regresar al menú principal"),
     ]
@@ -1128,11 +1128,11 @@ def _can_add_speech(st: dict, waid: str) -> Tuple[bool, str]:
     """
     speeches, sections = _get_speeches_and_sections(st)
     
-    # 1. Verificar si el miembro ya tiene discurso
+    # 1. Verificar si el socio ya tiene discurso
     if any(s.get("waid") == waid for s in speeches):
         return False, "❌ Ya tienes un discurso preparado registrado para esta sesión."
     
-    # 2. Verificar si el miembro ya tiene sección educativa
+    # 2. Verificar si el socio ya tiene sección educativa
     if any(s.get("waid") == waid for s in sections):
         return False, "❌ No puedes dar un discurso preparado si ya tienes una sección educativa."
     
@@ -1154,11 +1154,11 @@ def _can_add_section(st: dict, waid: str) -> Tuple[bool, str]:
     """
     speeches, sections = _get_speeches_and_sections(st)
     
-    # 1. Verificar si el miembro ya tiene sección educativa
+    # 1. Verificar si el socio ya tiene sección educativa
     if any(s.get("waid") == waid for s in sections):
         return False, "❌ Ya tienes una sección educativa registrada para esta sesión."
     
-    # 2. Verificar si el miembro ya tiene discurso
+    # 2. Verificar si el socio ya tiene discurso
     if any(s.get("waid") == waid for s in speeches):
         return False, "❌ No puedes dar una sección educativa si ya tienes un discurso preparado."
     
@@ -1175,7 +1175,7 @@ def _can_add_section(st: dict, waid: str) -> Tuple[bool, str]:
 
 def _revoke_incompatible_roles(ctx: Ctx, waid: str) -> List[str]:
     """
-    Revoca roles incompatibles (Toastmaster, Evaluador gramatical) si el miembro
+    Revoca roles incompatibles (Toastmaster, Evaluador gramatical) si el socio
     registra discurso o sección educativa. Retorna lista de roles revocados.
     """
     incompatible_roles = ["Toastmasters de la noche", "Evaluador gramatical"]
@@ -1242,9 +1242,9 @@ def _process_message_router(
         send_root_menu(waid)
         return jsonify({"status": "ok"})
 
-    # Si llega sólo el título del botón ("Menú de miembro") ignoralo y vuelve a pintar
-    if _is_choice(body_raw_clean, _set_norm(["Menú de miembro"])):
-        log.info("Usuario hizo clic en botón 'Menú de miembro' - cambiando a modo member")
+    # Si llega sólo el título del botón ("Menú de socio") ignoralo y vuelve a pintar
+    if _is_choice(body_raw_clean, _set_norm(["Menú de socio"])):
+        log.info("Usuario hizo clic en botón 'Menú de socio' - cambiando a modo member")
         current_cid_temp = s.get("club") or infer_user_club(waid)
         if current_cid_temp and current_cid_temp in _CTX:
             set_session(waid, mode="member", club=current_cid_temp, awaiting=None)
