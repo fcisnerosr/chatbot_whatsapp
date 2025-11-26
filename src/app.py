@@ -1012,8 +1012,26 @@ def send_admin_menu(ctx: Ctx, waid: str) -> dict:
 
 
 def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tuple[str, str]], str]:
+    # Obtener temática si existe
+    st = ctx.state_store.load()
+    theme_info = st.get("session_theme")
+    theme_text = ""
+    
+    role_lower = role.lower()
+    # Roles que necesitan conocer la temática
+    if "evaluador gramatical" in role_lower or "topic master" in role_lower or "temas improvisados" in role_lower:
+        if theme_info and theme_info.get("topic"):
+            theme_text = f"\n\n📝 Temática de la sesión: '{theme_info['topic']}'"
+        else:
+            theme_text = "\n\n⚠️ Aún no se ha definido la temática de la sesión."
+    
+    # Definir tiempo de respuesta según el rol
+    time_limit = ""
+    if "evaluador gramatical" in role_lower or "toastmasters de la noche" in role_lower or "toastmaster" in role_lower:
+        time_limit = "\n⏰ Tienes 4 horas para responder."
+    
     title = (
-        f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).\n"
+        f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).{theme_text}{time_limit}\n"
         "Elija una opción para responder."
     )
     options: List[Tuple[str, str]] = [
