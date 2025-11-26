@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -39,6 +40,7 @@ import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, Response
 from requests.exceptions import RequestException
+from weasyprint import HTML
 
 # Modelo POO existente
 from models import Club, Member, Role
@@ -280,6 +282,41 @@ def broadcast_text(numbers: Set[str] | List[str] | Tuple[str, ...], text: str) -
         else:
             ok += 1
     return {"ok": ok, "fail": fail}
+
+
+def send_document(to_e164_no_plus: str, file_url: str, caption: str = "", filename: str = "") -> dict:
+    """Envía un documento PDF u otro archivo via WhatsApp usando Gupshup API."""
+    log.info("→ Enviando documento a %s: %s", mx_public_from_internal(to_e164_no_plus), filename or file_url)
+    url = "https://api.gupshup.io/wa/api/v1/msg"
+    
+    # Construir mensaje JSON con formato de documento
+    import json
+    message_payload = {
+        "type": "file",
+        "url": file_url,
+    }
+    if caption:
+        message_payload["caption"] = caption
+    if filename:
+        message_payload["filename"] = filename
+    
+    data = {
+        "channel": "whatsapp",
+        "source": CFG.source,
+        "destination": to_e164_no_plus,
+        "message": json.dumps(message_payload),
+        "src.name": CFG.app_name,
+    }
+    
+    try:
+        r = requests.post(url, headers=HEADERS_FORM, data=data, timeout=30)
+        if r.ok:
+            return r.json()
+        log.warning("Gupshup documento %s: %s", r.status_code, r.text)
+        return {"ok": False, "status": r.status_code, "text": r.text}
+    except RequestException as e:
+        log.exception("Error al enviar documento via Gupshup")
+        return {"ok": False, "error": str(e)}
 
 
 def _normalize_option(option: str | Tuple[str, str]) -> Tuple[str, str]:
@@ -816,6 +853,14 @@ def check_and_announce_if_complete(ctx: Ctx) -> None:
     if st.get("last_summary") == summary:
         return
     st["last_summary"] = summary
+    
+    # Programar confirmaciones para el lunes si aún no se han programado
+    if not st.get("confirmations_scheduled"):
+        _schedule_monday_confirmations(ctx, st["round"])
+        st["confirmations_scheduled"] = True
+        ctx.state_store.save(st)
+        broadcast_text(ctx.admins, f"[{ctx.club_id}] ✅ Todos los roles aceptados. Confirmaciones programadas para el lunes 3 PM.")
+    
     ctx.state_store.save(st)
     broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] {summary}")
 
@@ -1189,6 +1234,204 @@ def _auto_reject_invite(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
         # No hay más candidatos
         broadcast_text(ctx.admins, f"[{ctx.club_id}] ⚠️ Rol *{role}* sin candidatos disponibles después de timeout.")
         log.warning(f"No hay candidatos para {role} después de timeout de {waid}")
+
+
+# ======================================================================================
+# Sistema de Confirmaciones de Asistencia (Lunes antes de la sesión)
+# ======================================================================================
+
+def _schedule_monday_confirmations(ctx: Ctx, round_no: int) -> None:
+    """Programa envío de confirmaciones para el lunes 3 PM."""
+    from datetime import datetime, timedelta
+    
+    # Calcular próximo lunes 3 PM
+    now = datetime.now()
+    days_until_monday = (0 - now.weekday()) % 7  # 0 = Lunes
+    if days_until_monday == 0 and now.hour >= 15:
+        days_until_monday = 7
+    
+    next_monday_3pm = now + timedelta(days=days_until_monday)
+    next_monday_3pm = next_monday_3pm.replace(hour=15, minute=0, second=0, microsecond=0)
+    
+    seconds_until_monday = (next_monday_3pm - now).total_seconds()
+    
+    if seconds_until_monday > 0:
+        Timer(seconds_until_monday, _send_monday_confirmations, args=(ctx, round_no)).start()
+        log.info(f"Confirmaciones programadas para {next_monday_3pm} (en {seconds_until_monday/3600:.1f} horas)")
+    else:
+        # Si ya pasó el lunes, enviar inmediatamente (para pruebas)
+        log.warning("Ya pasó el lunes 3 PM, enviando confirmaciones inmediatamente")
+        _send_monday_confirmations(ctx, round_no)
+
+
+def _send_monday_confirmations(ctx: Ctx, round_no: int) -> None:
+    """Envía mensajes de confirmación a todos los socios con roles aceptados."""
+    st = ctx.state_store.load()
+    
+    if st.get("round") != round_no:
+        log.warning(f"Ronda cambió de {round_no} a {st.get('round')}, cancelando confirmaciones")
+        return
+    
+    # Inicializar estructura de confirmaciones
+    if "confirmations" not in st:
+        st["confirmations"] = {}
+    
+    confirmed_count = 0
+    for role, info in st.get("accepted", {}).items():
+        waid = info.get("waid")
+        if not waid:
+            continue
+        
+        # Marcar como pendiente de confirmación
+        st["confirmations"][waid] = {
+            "role": role,
+            "confirmed": False,
+            "timestamp": time.time()
+        }
+        
+        msg = (
+            f"⚠️ *Confirmación de asistencia*\n\n"
+            f"Hola {info.get('name', '')}!\n\n"
+            f"Tienes asignado el rol de *{role}* para la sesión de mañana martes.\n\n"
+            f"Por favor confirma tu asistencia respondiendo:\n"
+            f"*CONFIRMO* o *SI*\n\n"
+            f"⏰ Plazo: Hoy antes de las 7:00 PM\n\n"
+            f"Si no confirmas, buscaremos un reemplazo."
+        )
+        send_text(waid, msg)
+        confirmed_count += 1
+    
+    ctx.state_store.save(st)
+    
+    # Programar verificación a las 7 PM
+    _schedule_confirmation_deadline(ctx, round_no)
+    
+    broadcast_text(ctx.admins, f"[{ctx.club_id}] 📨 Enviadas {confirmed_count} solicitudes de confirmación. Plazo: Hoy 7 PM.")
+
+
+def _schedule_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
+    """Programa verificación de confirmaciones para las 7 PM del lunes."""
+    from datetime import datetime, timedelta
+    
+    now = datetime.now()
+    today_7pm = now.replace(hour=19, minute=0, second=0, microsecond=0)
+    
+    if now >= today_7pm:
+        # Si ya pasó, ejecutar en 1 minuto (para pruebas)
+        seconds_until_deadline = 60
+    else:
+        seconds_until_deadline = (today_7pm - now).total_seconds()
+    
+    Timer(seconds_until_deadline, _process_confirmation_deadline, args=(ctx, round_no)).start()
+    log.info(f"Deadline de confirmaciones programado para {today_7pm} (en {seconds_until_deadline/3600:.1f} horas)")
+
+
+def _process_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
+    """Procesa las confirmaciones al llegar el deadline de 7 PM."""
+    st = ctx.state_store.load()
+    
+    if st.get("round") != round_no:
+        return
+    
+    confirmations = st.get("confirmations", {})
+    unconfirmed = []
+    
+    for waid, conf_data in confirmations.items():
+        if not conf_data.get("confirmed"):
+            role = conf_data.get("role")
+            unconfirmed.append((waid, role))
+    
+    if not unconfirmed:
+        # Todos confirmaron, generar PDF
+        log.info("Todos confirmaron, generando PDF")
+        _generate_and_send_pdf(ctx, round_no)
+        return
+    
+    # Buscar reemplazos para los que no confirmaron
+    for waid, role in unconfirmed:
+        log.info(f"Buscando reemplazo para {role} (no confirmó: {waid})")
+        
+        # Buscar nuevo candidato
+        excluded = set(a["waid"] for a in st.get("accepted", {}).values())
+        excluded.discard(waid)  # Quitar al que no confirmó
+        excluded.update(c[0] for c in unconfirmed if c[0] != waid)  # Excluir otros no confirmados
+        
+        new_cand = choose_candidate_hier(ctx, role, excluded)
+        
+        if new_cand:
+            # Reasignar rol
+            st["accepted"][role] = {"waid": new_cand, "name": pretty_name(ctx, new_cand)}
+            st["confirmations"][new_cand] = {"role": role, "confirmed": True, "timestamp": time.time()}
+            
+            send_text(waid, f"❌ No confirmaste a tiempo. El rol *{role}* fue reasignado.")
+            send_text(new_cand, f"🔄 Se te asignó el rol *{role}* para mañana porque el socio anterior no confirmó. Por favor confirma: CONFIRMO")
+            
+            broadcast_text(ctx.admins, f"[{ctx.club_id}] Rol *{role}* reasignado de {pretty_name(ctx, waid)} a {pretty_name(ctx, new_cand)}")
+        else:
+            # No hay reemplazo, mantener al original
+            log.warning(f"No hay reemplazo para {role}, manteniendo a {waid}")
+            st["confirmations"][waid]["confirmed"] = True  # Forzar confirmación
+            send_text(waid, f"⚠️ No confirmaste, pero no hay reemplazo disponible. Se espera tu asistencia para *{role}*.")
+            broadcast_text(ctx.admins, f"[{ctx.club_id}] ⚠️ {pretty_name(ctx, waid)} no confirmó *{role}*, pero no hay reemplazo. Se mantiene asignado.")
+    
+    ctx.state_store.save(st)
+    
+    # Verificar si ahora todos están confirmados
+    all_confirmed = all(c.get("confirmed") for c in st.get("confirmations", {}).values())
+    if all_confirmed:
+        _generate_and_send_pdf(ctx, round_no)
+
+
+def _generate_and_send_pdf(ctx: Ctx, round_no: int) -> None:
+    """Genera el PDF del programa y lo envía al Toastmaster de la noche."""
+    try:
+        from programa_generator import generate_program_pdf
+        
+        st = ctx.state_store.load()
+        pdf_path = generate_program_pdf(ctx, st, round_no)
+        
+        # Encontrar al Toastmaster de la noche
+        toastmaster_waid = None
+        toastmaster_name = ""
+        for role, info in st.get("accepted", {}).items():
+            if "toastmaster" in role.lower():
+                toastmaster_waid = info.get("waid")
+                toastmaster_name = info.get("name", "")
+                break
+        
+        if toastmaster_waid:
+            # NOTA: Para enviar el PDF, Gupshup requiere una URL pública.
+            # Opciones:
+            # 1. Subir a un servidor web/S3/cloud storage y obtener URL
+            # 2. Usar ngrok u otro túnel para servir archivos localmente
+            # 3. Por ahora, notificamos que está listo y los admins pueden descargarlo
+            
+            # Notificar al Toastmaster
+            msg = (
+                f"📋 *Programa de la sesión #{round_no}*\n\n"
+                f"¡Hola {toastmaster_name}! El programa de la sesión está listo.\n\n"
+                f"Los administradores te harán llegar el documento.\n\n"
+                f"¡Nos vemos mañana! 🎉"
+            )
+            send_text(toastmaster_waid, msg)
+            
+            # Notificar a admins con la ruta del archivo
+            admin_msg = (
+                f"[{ctx.club_id}] ✅ *PDF generado exitosamente*\n\n"
+                f"📄 Archivo: `{pdf_path.name}`\n"
+                f"📁 Ruta: `{pdf_path}`\n"
+                f"👤 Toastmaster: {toastmaster_name} ({mx_public_from_internal(toastmaster_waid)})\n\n"
+                f"💡 Para enviar automáticamente por WhatsApp, configura una URL pública del PDF."
+            )
+            broadcast_text(ctx.admins, admin_msg)
+            
+            log.info(f"PDF generado: {pdf_path}")
+        else:
+            broadcast_text(ctx.admins, f"[{ctx.club_id}] ⚠️ PDF generado ({pdf_path.name}) pero no se encontró Toastmaster para enviarlo.")
+    
+    except Exception as e:
+        log.exception("Error generando PDF")
+        broadcast_text(ctx.admins, f"[{ctx.club_id}] ❌ Error generando PDF: {str(e)}")
 
 
 def _resume_after_invite(waid: str, buffer: dict, default_mode: str = "root") -> None:
@@ -2251,6 +2494,41 @@ def _process_message_router(
         send_root_menu(waid)
         return jsonify({"status": "ok"})
 
+    # Comando de confirmación de asistencia
+    if body_norm in ("confirmo", "confirm", "si", "asistire", "asisto"):
+        cid = infer_user_club(waid, extract_trailing_club_id(body_raw))
+        if cid and cid in _CTX:
+            confirmation_ctx = _CTX[cid]
+            st = confirmation_ctx.state_store.load()
+            confirmations = st.get("confirmations", {})
+            
+            if waid in confirmations and not confirmations[waid].get("confirmed"):
+                # Marcar como confirmado
+                confirmations[waid]["confirmed"] = True
+                confirmations[waid]["timestamp"] = time.time()
+                st["confirmations"] = confirmations
+                confirmation_ctx.state_store.save(st)
+                
+                role = confirmations[waid].get("role", "tu rol")
+                send_text(waid, f"✅ Confirmación recibida para *{role}*. ¡Gracias!\n\nNos vemos mañana en la sesión.")
+                
+                # Verificar si todos confirmaron
+                all_confirmed = all(c.get("confirmed") for c in confirmations.values())
+                if all_confirmed:
+                    broadcast_text(confirmation_ctx.admins, f"[{cid}] ✅ Todos los socios confirmaron su asistencia. Generando programa...")
+                    _generate_and_send_pdf(confirmation_ctx, st.get("round", 0))
+                else:
+                    pending = sum(1 for c in confirmations.values() if not c.get("confirmed"))
+                    broadcast_text(confirmation_ctx.admins, f"[{cid}] ✅ {pretty_name(confirmation_ctx, waid)} confirmó. Pendientes: {pending}")
+                
+                return jsonify({"status": "ok"})
+            else:
+                send_text(waid, "ℹ️ No tienes ninguna confirmación pendiente en este momento.")
+                return jsonify({"status": "ok"})
+        else:
+            send_text(waid, "No se pudo determinar tu club.")
+            return jsonify({"status": "ok"})
+
     if body_norm == "reset":
         acls = admin_clubs(waid)
         if acls:
@@ -2272,6 +2550,43 @@ def _process_message_router(
             send_text(waid, "❌ No tienes permisos de administrador.")
             send_root_menu(waid)
             return jsonify({"status": "ok"})
+    
+    # Comando de prueba para enviar confirmaciones (solo admins)
+    if body_norm in ("test confirmaciones", "enviar confirmaciones"):
+        acls = admin_clubs(waid)
+        if acls:
+            cid = acls[0] if len(acls) == 1 else infer_user_club(waid, extract_trailing_club_id(body_raw))
+            if cid and cid in _CTX:
+                test_ctx = _CTX[cid]
+                st = test_ctx.state_store.load()
+                round_no = st.get("round", 0)
+                
+                if not st.get("accepted"):
+                    send_text(waid, "⚠️ No hay roles aceptados para enviar confirmaciones.")
+                    return jsonify({"status": "ok"})
+                
+                send_text(waid, f"📨 Enviando confirmaciones de prueba para ronda #{round_no}...")
+                _send_monday_confirmations(test_ctx, round_no)
+                return jsonify({"status": "ok"})
+        send_text(waid, "❌ No tienes permisos de administrador.")
+        return jsonify({"status": "ok"})
+    
+    # Comando de prueba para generar PDF (solo admins)
+    if body_norm in ("test pdf", "generar pdf"):
+        acls = admin_clubs(waid)
+        if acls:
+            cid = acls[0] if len(acls) == 1 else infer_user_club(waid, extract_trailing_club_id(body_raw))
+            if cid and cid in _CTX:
+                test_ctx = _CTX[cid]
+                st = test_ctx.state_store.load()
+                round_no = st.get("round", 0)
+                
+                send_text(waid, f"📄 Generando PDF de prueba para ronda #{round_no}...")
+                _generate_and_send_pdf(test_ctx, round_no)
+                return jsonify({"status": "ok"})
+        send_text(waid, "❌ No tienes permisos de administrador.")
+        return jsonify({"status": "ok"})
+
 
     if body_norm in ("acepto", "accept") and ctx:
         send_text(waid, handle_accept(ctx, waid))

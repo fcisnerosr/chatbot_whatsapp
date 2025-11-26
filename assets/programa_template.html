@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Programa Sesión Toastmasters</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 11pt;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #004976 0%, #006ba6 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .header-title {
+            flex: 1;
+        }
+
+        .header-title h1 {
+            font-size: 20pt;
+            margin: 0;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .logo {
+            width: 120px;
+            height: auto;
+        }
+
+        .session-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 0 10px;
+        }
+
+        .session-number {
+            font-size: 32pt;
+            font-weight: bold;
+            color: #004976;
+        }
+
+        .theme-box {
+            flex: 1;
+            text-align: center;
+            margin: 0 20px;
+        }
+
+        .theme-box h2 {
+            color: #8b1538;
+            font-size: 18pt;
+            margin: 5px 0;
+        }
+
+        .theme-box .theme-text {
+            font-size: 22pt;
+            font-weight: bold;
+            color: #8b1538;
+        }
+
+        .word-box {
+            background: #d3d3d3;
+            padding: 10px;
+            width: 200px;
+        }
+
+        .word-box h3 {
+            margin: 0 0 5px 0;
+            font-size: 12pt;
+        }
+
+        .word-box .word {
+            font-style: italic;
+            font-weight: bold;
+            font-size: 14pt;
+        }
+
+        .word-box .definition {
+            font-size: 9pt;
+            margin-top: 5px;
+        }
+
+        .date-info {
+            text-align: left;
+            font-size: 14pt;
+            font-weight: bold;
+            padding: 0 10px 10px 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        thead {
+            background: white;
+            border-bottom: 2px solid #004976;
+        }
+
+        thead th {
+            padding: 8px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 10pt;
+            color: black;
+            border: 1px solid #ccc;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #ddd;
+        }
+
+        tbody td {
+            padding: 6px 8px;
+            font-size: 9pt;
+            border: 1px solid #ccc;
+        }
+
+        .time-col {
+            width: 60px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .duration-col {
+            width: 50px;
+            text-align: center;
+        }
+
+        .mins-col {
+            width: 40px;
+            text-align: center;
+            font-size: 8pt;
+        }
+
+        .agenda-col {
+            width: 50%;
+        }
+
+        .member-col {
+            width: 25%;
+            font-style: italic;
+        }
+
+        .highlight {
+            background: #ffeb3b;
+            font-weight: bold;
+        }
+
+        .red-bg {
+            background: #dc143c;
+            color: white;
+            font-weight: bold;
+        }
+
+        .yellow-bg {
+            background: #ffd966;
+        }
+
+        .green-bg {
+            background: #93c47d;
+        }
+
+        .orange-bg {
+            background: #e69138;
+            color: white;
+        }
+
+        .sub-item {
+            padding-left: 15px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="header-title">
+            <h1>CLUB TOASTMASTERS FACULTAD DE INGENIERÍA<br>DE LA UNIVERSIDAD VERACRUZANA</h1>
+        </div>
+        <img src="{{logo_path}}" alt="Toastmasters International" class="logo">
+    </div>
+
+    <div class="session-info">
+        <div>
+            <div class="session-number">Sesión # {{session_number}}</div>
+        </div>
+        <div class="theme-box">
+            <h2>TEMA:</h2>
+            <div class="theme-text">{{theme}}</div>
+        </div>
+        <div class="word-box">
+            <h3>PALABRA DEL DIA</h3>
+            <div class="word">{{word}}</div>
+            <div class="definition">{{word_definition}}</div>
+        </div>
+    </div>
+
+    <div class="date-info">Fecha: {{date}}</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th class="time-col">HORA DE<br>INICIO</th>
+                <th class="duration-col">MINUTOS</th>
+                <th class="mins-col">TIEMPO</th>
+                <th class="agenda-col">AGENDA</th>
+                <th class="member-col">MIEMBRO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{agenda_rows}}
+        </tbody>
+    </table>
+</body>
+
+</html>
