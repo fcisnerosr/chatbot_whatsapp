@@ -26,11 +26,13 @@ import os
 import random
 import re
 import tempfile
+import time
 import unicodedata
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 from typing import Dict, List, Optional, Set, Tuple
 
 import requests
@@ -706,7 +708,12 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
         if not cand:
             continue
         
-        st["pending"][role] = {"candidate": cand, "declined_by": [], "accepted": False}
+        st["pending"][role] = {
+            "candidate": cand,
+            "declined_by": [],
+            "accepted": False,
+            "timestamp": time.time()
+        }
         invited_in_this_batch.add(cand)
 
     ctx.state_store.save(st)
@@ -716,6 +723,8 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
     for role, info in st["pending"].items():
         cand = info["candidate"]
         begin_invite_flow(ctx, cand, role, st["round"])
+        # Programar temporizadores para este rol
+        _schedule_invite_timers(ctx, role, cand, st["round"])
 
     assigned_roles = set(st["pending"].keys())
     not_assigned = [r.name for r in ctx.club.roles if r.name not in assigned_roles]
@@ -875,6 +884,14 @@ def reset_all(ctx: Ctx, by_admin: str) -> str:
         "canceled": False,
     }
     ctx.state_store.save(st)
+    
+    # Resetear sesiones de todos los miembros del club
+    with SLOCK:
+        for waid in ctx.all_numbers:
+            if waid in SESSION:
+                SESSION[waid] = _default_session()
+                save_session(waid, SESSION[waid])
+    
     broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] ♻️ Se reinició el estado del club.")
     return "Estado del club reiniciado."
 
@@ -1011,6 +1028,14 @@ def send_admin_menu(ctx: Ctx, waid: str) -> dict:
     return send_list_menu(waid, title, options, button)
 
 
+def _get_role_timeout_hours(role: str) -> float:
+    """Retorna el tiempo límite en horas para responder según el rol."""
+    role_lower = role.lower()
+    if "evaluador gramatical" in role_lower or "toastmasters de la noche" in role_lower or "toastmaster" in role_lower:
+        return 4.0
+    return 24.0  # 24 horas por defecto para otros roles
+
+
 def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tuple[str, str]], str]:
     # Obtener temática si existe
     st = ctx.state_store.load()
@@ -1026,9 +1051,8 @@ def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tup
             theme_text = "\n\n⚠️ Aún no se ha definido la temática de la sesión."
     
     # Definir tiempo de respuesta según el rol
-    time_limit = ""
-    if "evaluador gramatical" in role_lower or "toastmasters de la noche" in role_lower or "toastmaster" in role_lower:
-        time_limit = "\n⏰ Tienes 4 horas para responder."
+    timeout_hours = _get_role_timeout_hours(role)
+    time_limit = f"\n⏰ Tienes {int(timeout_hours)} horas para responder."
     
     title = (
         f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).{theme_text}{time_limit}\n"
@@ -1068,6 +1092,103 @@ def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
 
 def send_invite_menu(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
     begin_invite_flow(ctx, waid, role, round_no)
+
+
+def _schedule_invite_timers(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
+    """Programa temporizadores escalonados para recordatorios y auto-rechazo."""
+    timeout_hours = _get_role_timeout_hours(role)
+    timeout_seconds = timeout_hours * 3600
+    
+    # Notificaciones escalonadas según el tiempo total
+    if timeout_hours >= 4:
+        # Para roles con 4+ horas:
+        # - Recordatorio a mitad de tiempo (2 horas)
+        # - Alerta urgente 30 min antes
+        # - Auto-rechazo al vencer
+        Timer(2 * 3600, _send_reminder, args=(ctx, role, waid, round_no, "mitad")).start()
+        Timer(timeout_seconds - 1800, _send_reminder, args=(ctx, role, waid, round_no, "urgente")).start()
+        Timer(timeout_seconds, _auto_reject_invite, args=(ctx, role, waid, round_no)).start()
+    else:
+        # Para roles con menos tiempo: solo alerta 1 hora antes y auto-rechazo
+        if timeout_hours > 1:
+            Timer(timeout_seconds - 3600, _send_reminder, args=(ctx, role, waid, round_no, "urgente")).start()
+        Timer(timeout_seconds, _auto_reject_invite, args=(ctx, role, waid, round_no)).start()
+    
+    log.info(f"Temporizadores programados para {role} ({waid}): {timeout_hours}h")
+
+
+def _send_reminder(ctx: Ctx, role: str, waid: str, round_no: int, reminder_type: str) -> None:
+    """Envía recordatorio escalonado si la invitación sigue pendiente."""
+    st = ctx.state_store.load()
+    
+    # Verificar si la invitación sigue pendiente
+    if role not in st.get("pending", {}):
+        return
+    
+    info = st["pending"][role]
+    if info.get("candidate") != waid or info.get("accepted"):
+        return
+    
+    if reminder_type == "mitad":
+        timeout_hours = _get_role_timeout_hours(role)
+        remaining = timeout_hours / 2
+        msg = f"⏰ Recordatorio: Te quedan {int(remaining)} horas para responder a tu invitación de *{role}* (reunión #{round_no})."
+    elif reminder_type == "urgente":
+        msg = f"⚠️ URGENTE: Te quedan 30 minutos para responder a tu invitación de *{role}* (reunión #{round_no}). Si no respondes, se asignará a otro socio."
+    else:
+        msg = f"⏰ Recordatorio: Tienes una invitación pendiente para *{role}* (reunión #{round_no})."
+    
+    send_text(waid, msg)
+    log.info(f"Recordatorio {reminder_type} enviado a {waid} para {role}")
+
+
+def _auto_reject_invite(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
+    """Auto-rechaza invitación vencida y busca nuevo candidato."""
+    st = ctx.state_store.load()
+    
+    # Verificar si la invitación sigue pendiente y sin aceptar
+    if role not in st.get("pending", {}):
+        return
+    
+    info = st["pending"][role]
+    if info.get("candidate") != waid or info.get("accepted"):
+        return
+    
+    # Marcar como rechazado por timeout
+    info["declined_by"] = info.get("declined_by", [])
+    if waid not in info["declined_by"]:
+        info["declined_by"].append(waid)
+    info["candidate"] = None
+    info["accepted"] = False
+    
+    ctx.state_store.save(st)
+    
+    # Notificar al socio
+    send_text(waid, f"⏰ Tiempo agotado: Tu invitación para *{role}* ha expirado y se asignará a otro socio.")
+    
+    # Buscar nuevo candidato
+    excluded = set(a["waid"] for a in st["accepted"].values())
+    excluded.update(pending_candidates(st, exclude_role=role))
+    excluded.update(info.get("declined_by", []))
+    
+    new_cand = choose_candidate_hier(ctx, role, excluded)
+    
+    if new_cand:
+        info["candidate"] = new_cand
+        info["timestamp"] = time.time()
+        ctx.state_store.save(st)
+        
+        send_text(new_cand, f"🔄 Reasignación: Se te invita a *{role}* (reunión #{round_no}) porque el candidato anterior no respondió a tiempo.")
+        begin_invite_flow(ctx, new_cand, role, round_no)
+        _schedule_invite_timers(ctx, role, new_cand, round_no)
+        
+        # Notificar a admins
+        broadcast_text(ctx.admins, f"[{ctx.club_id}] Rol *{role}* reasignado a {pretty_name(ctx, new_cand)} por timeout.")
+        log.info(f"Rol {role} reasignado a {new_cand} por timeout de {waid}")
+    else:
+        # No hay más candidatos
+        broadcast_text(ctx.admins, f"[{ctx.club_id}] ⚠️ Rol *{role}* sin candidatos disponibles después de timeout.")
+        log.warning(f"No hay candidatos para {role} después de timeout de {waid}")
 
 
 def _resume_after_invite(waid: str, buffer: dict, default_mode: str = "root") -> None:
@@ -1274,12 +1395,22 @@ def _process_message_router(
     # Si llega sólo el título del botón ("Menú de admin") ignoralo y vuelve a pintar
     if _is_choice(body_raw_clean, _set_norm(["Menú de admin"])):
         log.info("Usuario hizo clic en botón 'Menú de admin' - cambiando a modo admin")
+        aclubs_temp = admin_clubs(waid)
+        if not aclubs_temp:
+            send_text(waid, "❌ No tienes permisos de administrador.")
+            send_root_menu(waid)
+            return jsonify({"status": "ok"})
         current_cid_temp = s.get("club") or infer_user_club(waid)
-        if current_cid_temp and current_cid_temp in _CTX:
+        if current_cid_temp and current_cid_temp in _CTX and current_cid_temp in aclubs_temp:
             set_session(waid, mode="admin", club=current_cid_temp, awaiting=None)
             send_admin_menu(_CTX[current_cid_temp], waid)
         else:
-            send_root_menu(waid)
+            # Si es admin pero de otro club o múltiples clubs
+            if len(aclubs_temp) == 1:
+                set_session(waid, mode="admin", club=aclubs_temp[0], awaiting=None)
+                send_admin_menu(_CTX[aclubs_temp[0]], waid)
+            else:
+                send_root_menu(waid)
         return jsonify({"status": "ok"})
 
     if not s.get("club"):
@@ -1820,6 +1951,10 @@ def _process_message_router(
         # 2) Admin
         if _is_choice(body_raw_clean, ROOT_ADMIN_SET):
             log.info("✓ Detectado: Opción 'Menú de admin' desde menú raíz")
+            if not aclubs:
+                send_text(waid, "❌ No tienes permisos de administrador.")
+                send_root_menu(waid)
+                return jsonify({"status": "ok"})
             if len(aclubs) == 1:
                 cid = aclubs[0]
                 set_session(waid, mode="admin", club=cid, awaiting=None)
@@ -2115,6 +2250,28 @@ def _process_message_router(
             send_text(waid, "No se pudo determinar tu club. Pide a un admin que te agregue.")
         send_root_menu(waid)
         return jsonify({"status": "ok"})
+
+    if body_norm == "reset":
+        acls = admin_clubs(waid)
+        if acls:
+            # Si es admin de un solo club, resetear ese club
+            if len(acls) == 1:
+                reset_ctx = _CTX[acls[0]]
+                send_text(waid, reset_all(reset_ctx, pretty_name(reset_ctx, waid)))
+                send_root_menu(waid)
+                return jsonify({"status": "ok"})
+            # Si es admin de múltiples clubs, resetear todos
+            else:
+                for club_id in acls:
+                    reset_ctx = _CTX[club_id]
+                    reset_all(reset_ctx, pretty_name(reset_ctx, waid))
+                send_text(waid, f"♻️ Se reiniciaron {len(acls)} clubes: {', '.join(acls)}")
+                send_root_menu(waid)
+                return jsonify({"status": "ok"})
+        else:
+            send_text(waid, "❌ No tienes permisos de administrador.")
+            send_root_menu(waid)
+            return jsonify({"status": "ok"})
 
     if body_norm in ("acepto", "accept") and ctx:
         send_text(waid, handle_accept(ctx, waid))
