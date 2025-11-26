@@ -1044,7 +1044,7 @@ def begin_invite_flow(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
         },
     )
     title, options, _ = invite_menu_parts(ctx, role, round_no)
-    send_text(waid, invite_text(ctx, role, round_no))
+    # send_text(waid, invite_text(ctx, role, round_no))  <-- Eliminado para evitar duplicidad visual
     send_menu_with_quick_replies(waid, title, [opt[0] for opt in options])
 
 

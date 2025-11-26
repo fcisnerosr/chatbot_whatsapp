@@ -1,5 +1,5 @@
 {
-  "round": 2,
+  "round": 3,
   "pending": {
     "Toastmasters de la noche": {
       "candidate": "5215634948177",
@@ -7,12 +7,12 @@
       "accepted": false
     },
     "Evaluador gramatical": {
-      "candidate": "5212721073312",
+      "candidate": "5212293655442",
       "declined_by": [],
       "accepted": false
     },
     "Evaluador de muletillas": {
-      "candidate": "5212293655442",
+      "candidate": "5212721073312",
       "declined_by": [],
       "accepted": false
     },
