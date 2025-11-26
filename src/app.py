@@ -692,14 +692,22 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
 
     roles_sorted = sorted(ctx.club.roles, key=lambda r: int(getattr(r, "difficulty", 1) or 1), reverse=True)
 
+    # Conjunto de candidatos ya invitados en esta ronda (para evitar doble invitación simultánea)
+    invited_in_this_batch = set()
+
     for r in roles_sorted:
         role = r.name
         excluded = set(a["waid"] for a in st["accepted"].values())
         excluded.update(pending_candidates(st))
+        # También excluimos a los que ya recibieron invitación en este mismo lote
+        excluded.update(invited_in_this_batch)
+
         cand = choose_candidate_hier(ctx, role, excluded)
         if not cand:
             continue
+        
         st["pending"][role] = {"candidate": cand, "declined_by": [], "accepted": False}
+        invited_in_this_batch.add(cand)
 
     ctx.state_store.save(st)
 

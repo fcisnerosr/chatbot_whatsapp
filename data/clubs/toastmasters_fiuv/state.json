@@ -1,16 +1,36 @@
 {
-  "round": 0,
-  "pending": {},
+  "round": 2,
+  "pending": {
+    "Toastmasters de la noche": {
+      "candidate": "5215634948177",
+      "declined_by": [],
+      "accepted": false
+    },
+    "Evaluador gramatical": {
+      "candidate": "5212721073312",
+      "declined_by": [],
+      "accepted": false
+    },
+    "Evaluador de muletillas": {
+      "candidate": "5212293655442",
+      "declined_by": [],
+      "accepted": false
+    },
+    "Evaluador del tiempo": {
+      "candidate": "5219212671618",
+      "declined_by": [],
+      "accepted": false
+    }
+  },
   "accepted": {},
   "members_cycle": {
     "5219212671618": [],
     "5212293655442": [],
     "5212721073312": [],
     "5219211787763": [],
-    "5215634948177": []
+    "5215634948177": [],
+    "5215586466230": []
   },
   "last_summary": null,
-  "canceled": false,
-  "prepared_speeches": [],
-  "educational_sections": []
+  "canceled": false
 }
