@@ -778,7 +778,75 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
 def handle_accept(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in st["pending"].items():
-        if info["candidate"] == waid and not info["accepted"]:
+        if info.get("waid") == waid and not info.get("accepted"):
+            # Detectar si es una cesión de cargo (from_handoff)
+            from_handoff = info.get("from_handoff", False)
+            original_waid = info.get("original_waid")
+            action_type = info.get("action_type")
+            
+            info["accepted"] = True
+            st["accepted"][role] = {"waid": waid, "name": pretty_name(ctx, waid)}
+
+            done_list = list(st["members_cycle"].get(waid, []))
+            if role not in done_list:
+                done_list.append(role)
+            if len(done_list) >= len(ctx.club.roles):
+                done_list = []
+            st["members_cycle"][waid] = done_list
+
+            member = next((m for m in ctx.club.members if m.waid == waid), None)
+            role_obj = next((r for r in ctx.club.roles if r.name == role), None)
+            if member and role_obj:
+                member.add_role(role_obj)
+                ctx.club.save_to_json(str(ctx.club_file))
+
+            ctx.state_store.save(st)
+            
+            # Si es una cesión, notificar al solicitante original y continuar su flujo
+            if from_handoff and original_waid:
+                action_text = "discurso preparado" if action_type == "speech" else "sección educativa"
+                send_text(
+                    original_waid,
+                    f"✅ {pretty_name(ctx, waid)} aceptó tomar el cargo de *{role}*.\n\n"
+                    f"Ahora puedes continuar con tu {action_text}."
+                )
+                
+                # Continuar con el flujo del solicitante
+                if action_type == "speech":
+                    set_session(original_waid, awaiting="speech_step1_pathway", buffer={
+                        "waid": original_waid,
+                        "club": ctx.club_id,
+                        "round": st["round"]
+                    })
+                    pathways = [
+                        "Dynamic Leadership",
+                        "Engaging Humor",
+                        "Motivational Strategies",
+                        "Persuasive Influence",
+                        "Presentation Mastery",
+                        "Visionary Communication"
+                    ]
+                    send_list_menu(original_waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
+                else:  # section
+                    set_session(original_waid, awaiting="section_step1_serie", buffer={
+                        "waid": original_waid,
+                        "club": ctx.club_id,
+                        "round": st["round"]
+                    })
+                    series = [
+                        ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
+                        ("🎖️ Serie del club exitoso", "Gestión de clubes"),
+                        ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
+                        ("💡 Tema libre", "Cualquier tema educativo")
+                    ]
+                    send_list_menu(original_waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
+            
+            check_and_announce_if_complete(ctx)
+            return f"✅ Aceptado: {role} por {pretty_name(ctx, waid)}."
+    
+    # Buscar en formato antiguo (candidate en lugar de waid)
+    for role, info in st["pending"].items():
+        if info.get("candidate") == waid and not info.get("accepted"):
             info["accepted"] = True
             st["accepted"][role] = {"waid": waid, "name": pretty_name(ctx, waid)}
 
@@ -798,22 +866,102 @@ def handle_accept(ctx: Ctx, waid: str) -> str:
             ctx.state_store.save(st)
             check_and_announce_if_complete(ctx)
             return f"✅ Aceptado: {role} por {pretty_name(ctx, waid)}."
+    
     return "No hay nada pendiente para aceptar."
 
 
 def handle_reject(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in list(st["pending"].items()):
-        if info.get("candidate") == waid and not info.get("accepted"):
-            info["declined_by"].append(waid)
+        # Verificar tanto "waid" (nuevo formato) como "candidate" (formato antiguo)
+        is_pending = (info.get("waid") == waid or info.get("candidate") == waid) and not info.get("accepted")
+        
+        if is_pending:
+            # Detectar si es una cesión de cargo
+            from_handoff = info.get("from_handoff", False)
+            original_waid = info.get("original_waid")
+            action_type = info.get("action_type")
+            
+            if from_handoff and original_waid:
+                # Es una cesión rechazada - el bot debe elegir otro reemplazo
+                send_text(waid, f"✅ Entendido. Rechazaste el cargo de *{role}*.")
+                
+                # Buscar otro reemplazo automáticamente
+                role_obj = next((r for r in ctx.club.roles if r.name == role), None)
+                role_min_level = role_obj.difficulty if role_obj else 1
+                
+                # Encontrar candidatos elegibles
+                candidates = []
+                for member in ctx.club.members:
+                    if member.waid == original_waid or member.waid == waid:
+                        continue  # Excluir al que cedió y al que rechazó
+                    if member.level < role_min_level:
+                        continue
+                    # Verificar que no tenga rol aceptado
+                    has_role = any(a.get("waid") == member.waid for a in st.get("accepted", {}).values())
+                    if not has_role:
+                        candidates.append(member)
+                
+                if candidates:
+                    # Elegir candidato aleatorio
+                    import random
+                    replacement = random.choice(candidates)
+                    
+                    # Actualizar el pendiente
+                    info["waid"] = replacement.waid
+                    info["nombre"] = replacement.name
+                    ctx.state_store.save(st)
+                    
+                    # Notificar al nuevo candidato
+                    action_text = "discurso preparado" if action_type == "speech" else "sección educativa"
+                    send_text(
+                        replacement.waid,
+                        f"📧 {pretty_name(ctx, original_waid)} necesita ceder el cargo de *{role}* porque desea dar un {action_text}.\n\n"
+                        f"¿Puedes tomar el rol de *{role}* para la reunión #{st['round']}?\n\n"
+                        f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                    )
+                    
+                    # Notificar al solicitante original
+                    send_text(
+                        original_waid,
+                        f"⚠️ {pretty_name(ctx, waid)} no pudo aceptar el cargo.\n\n"
+                        f"🤖 El bot seleccionó a *{replacement.name}* como nuevo candidato. Esperando su confirmación..."
+                    )
+                    
+                    return f"↪️ Rechazado por {pretty_name(ctx, waid)}. Bot eligió: {replacement.name}."
+                else:
+                    # No hay más candidatos
+                    del st["pending"][role]
+                    ctx.state_store.save(st)
+                    
+                    action_text = "discurso preparado" if action_type == "speech" else "sección educativa"
+                    send_text(
+                        original_waid,
+                        f"❌ Lamentablemente, no hay más socios disponibles para reemplazarte en el cargo de *{role}*.\n\n"
+                        f"No podrás dar tu {action_text} siendo Toastmaster. Contacta al vicepresidente educativo."
+                    )
+                    
+                    # Limpiar sesión del solicitante
+                    set_session(original_waid, awaiting=None, buffer=None, mode="root")
+                    send_root_menu(original_waid)
+                    
+                    return "Sin candidatos disponibles para cesión."
+            
+            # Flujo normal de rechazo (no es cesión)
+            info.setdefault("declined_by", []).append(waid)
 
-            excluded = set(info["declined_by"])
+            excluded = set(info.get("declined_by", []))
             excluded.update(a["waid"] for a in st.get("accepted", {}).values())
             excluded.update(pending_candidates(st, exclude_role=role))
 
             cand = choose_candidate_hier(ctx, role, excluded)
             if cand:
-                info["candidate"] = cand
+                # Actualizar con formato adecuado
+                if "candidate" in info:
+                    info["candidate"] = cand
+                else:
+                    info["waid"] = cand
+                    info["nombre"] = pretty_name(ctx, cand)
                 ctx.state_store.save(st)
                 begin_invite_flow(ctx, cand, role, st["round"])
                 return f"↪️ Rechazado por {pretty_name(ctx, waid)}. Nuevo candidato: {pretty_name(ctx, cand)}."
@@ -822,6 +970,7 @@ def handle_reject(ctx: Ctx, waid: str) -> str:
                 ctx.state_store.save(st)
                 broadcast_text(ctx.admins, f"[{ctx.club_id}] No hay más opciones para el rol: {role}.")
                 return "Sin candidatos."
+    
     return "No hay nada pendiente para rechazar."
 
 
@@ -2125,56 +2274,48 @@ def _process_message_router(
                     break
             
             if toastmaster_role and replacement_waid:
-                # Reasignar el rol
-                st["accepted"][toastmaster_role] = {
+                # Remover el rol actual del que cede
+                if toastmaster_role in st.get("accepted", {}):
+                    del st["accepted"][toastmaster_role]
+                
+                # Crear pendiente para el reemplazo (necesita confirmación)
+                if "pending" not in st:
+                    st["pending"] = {}
+                st["pending"][toastmaster_role] = {
                     "waid": replacement_waid,
-                    "name": pretty_name(club_ctx, replacement_waid)
+                    "nombre": pretty_name(club_ctx, replacement_waid),
+                    "propuesto_por": pretty_name(club_ctx, waid),
+                    "timestamp": int(__import__("time").time()),
+                    "from_handoff": True,  # Marca especial para saber que viene de cesión
+                    "original_waid": waid,  # Para saber quién cedió
+                    "action_type": action_type  # "speech" o "section"
                 }
                 club_ctx.state_store.save(st)
                 
-                # Notificar al nuevo Toastmaster
+                # Enviar solicitud de confirmación al reemplazo
+                action_text = "discurso preparado" if action_type == "speech" else "sección educativa"
                 send_text(
                     replacement_waid,
-                    f"🎉 ¡Felicidades! Has sido asignado como *{toastmaster_role}* para la reunión #{st['round']}.\n\n"
-                    f"{pretty_name(club_ctx, waid)} cedió su cargo para poder dar un {'discurso preparado' if action_type == 'speech' else 'sección educativa'}."
+                    f"📧 {pretty_name(club_ctx, waid)} necesita ceder el cargo de *{toastmaster_role}* porque desea dar un {action_text}.\n\n"
+                    f"¿Puedes tomar el rol de *{toastmaster_role}* para la reunión #{st['round']}?\n\n"
+                    f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
                 )
                 
-                # Confirmar al socio original
+                # Confirmar al socio original que se envió la solicitud
                 send_text(
                     waid,
-                    f"✅ Has cedido el cargo de *{toastmaster_role}* a {pretty_name(club_ctx, replacement_waid)}.\n\n"
-                    f"Ahora puedes continuar con tu {'discurso preparado' if action_type == 'speech' else 'sección educativa'}."
+                    f"✅ Se envió solicitud a {pretty_name(club_ctx, replacement_waid)} para que tome el cargo de *{toastmaster_role}*.\n\n"
+                    f"⏳ Esperando su confirmación. Si rechaza, el bot elegirá automáticamente otro reemplazo."
                 )
                 
-                # Continuar con el flujo correspondiente
-                if action_type == "speech":
-                    set_session(waid, awaiting="speech_step1_pathway", buffer={
-                        "waid": waid,
-                        "club": club_ctx.club_id,
-                        "round": st["round"]
-                    })
-                    pathways = [
-                        "Dynamic Leadership",
-                        "Engaging Humor",
-                        "Motivational Strategies",
-                        "Persuasive Influence",
-                        "Presentation Mastery",
-                        "Visionary Communication"
-                    ]
-                    send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
-                else:  # section
-                    set_session(waid, awaiting="section_step1_serie", buffer={
-                        "waid": waid,
-                        "club": club_ctx.club_id,
-                        "round": st["round"]
-                    })
-                    series = [
-                        ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
-                        ("🎖️ Serie del club exitoso", "Gestión de clubes"),
-                        ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
-                        ("💡 Tema libre", "Cualquier tema educativo")
-                    ]
-                    send_list_menu(waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
+                # Poner al solicitante en espera
+                set_session(waid, awaiting="waiting_handoff_confirmation", buffer={
+                    "waid": waid,
+                    "club": club_ctx.club_id,
+                    "round": st["round"],
+                    "action": action_type,
+                    "role": toastmaster_role
+                })
                 
                 return None
             else:
