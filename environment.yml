@@ -5,6 +5,16 @@ channels:
 dependencies:
   - python=3.12
   - pip
+  
+  # 🔹 Framework web
+  - flask=3.0.3
+  
+  # 🔹 HTTP requests y manejo de APIs
+  - requests=2.32.3
+  
+  # 🔹 Generación de PDFs
+  - weasyprint
+  
   # 🔹 Desarrollo y utilidades
   - cookiecutter        # para plantillas
   - pytest              # testing básico
@@ -12,9 +22,7 @@ dependencies:
   - flake8              # linting
   - isort               # ordena imports
   - jupyterlab          # notebooks si haces prototipos
-  # 🔹 Dependencias específicas del chatbot
-  - flask=3.0.3
-  - requests=2.32.3
-  - weasyprint
+  
+  # 🔹 Dependencias via pip
   - pip:
       - python-dotenv==1.0.1
