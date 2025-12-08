@@ -11,10 +11,12 @@
       "name": "Paco",
       "waid": "5212293655442",
       "is_guest": false,
-      "level": 3,
+      "level": 6,
       "roles_done": [
+        "Toastmasters de la noche",
+        "Toastmasters de la noche",
         "Evaluador gramatical",
-        "Topic Master: Director de temas improvisados"
+        "Toastmasters de la noche"
       ]
     },
     {
@@ -27,19 +29,12 @@
       ]
     },
     {
-      "name": "Claudia",
+      "name": "Claudia Vazquez",
       "waid": "5215586466230",
-      "is_guest": false,
-      "level": 1,
-      "roles_done": []
-    },
-    {
-      "name": "Roger",
-      "waid": "5215634948177",
       "is_guest": false,
       "level": 6,
       "roles_done": [
-        "Evaluador de muletillas",
+        "Toastmasters de la noche",
         "Evaluador gramatical",
         "Toastmasters de la noche"
       ]
@@ -56,7 +51,7 @@
     },
     {
       "name": "Evaluador gramatical",
-      "difficulty": 3
+      "difficulty": 5
     },
     {
       "name": "Topic Master: Director de temas improvisados",

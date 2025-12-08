@@ -402,7 +402,7 @@ ROOT_STATUS_SET = _set_norm(["📌 Mi estado de rol", "Mi estado de rol"])
 BACK_SET        = _set_norm(["🔙 Volver", "Volver"])
 MEM_ROLE_SET    = _set_norm(["🎯 Mi rol", "Mi rol"])
 MEM_STATUS_SET  = _set_norm(["📊 Estado de la ronda", "Estado de la ronda"])
-MEM_SPEECH_SET  = _set_norm(["🎤 Quiero dar un discurso preparado", "Quiero dar un discurso preparado", "Discurso preparado"])
+MEM_SPEECH_SET  = _set_norm(["🎤 Discurso preparado", "🎤 Dar un discurso preparado", "Quiero dar un discurso preparado", "Discurso preparado"])
 MEM_EDUCATION_SET = _set_norm(["📚 Quiero dar una Sección Educativa", "Quiero dar una Sección Educativa", "Sección Educativa"])
 
 def _is_choice(body_raw: str, target_set: Set[str]) -> bool:
@@ -1008,8 +1008,8 @@ def _member_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
     options: List[Tuple[str, str]] = [
         ("🎯 Mi rol", "Pendiente o confirmado"),
         ("📊 Estado de la ronda", "Resumen y pendientes"),
-        ("🎤 Quiero dar un discurso preparado", "Registrar discurso de pathway"),
-        ("📚 Quiero dar una Sección Educativa", "Registrar sección educativa"),
+        ("🎤 Discurso preparado", "Registrar discurso de pathway"),
+        ("📚 Dar una educativa", "Registrar sección educativa"),
         ("🔙 Volver", "Regresar al menú principal"),
     ]
     return title, options, "Menú de socio"
@@ -1503,26 +1503,53 @@ def _get_speeches_and_sections(st: dict) -> Tuple[list, list]:
     return speeches, sections
 
 
+def _is_toastmaster(st: dict, waid: str) -> bool:
+    """Verifica si el socio tiene el rol de Toastmaster de la noche."""
+    for role, info in st.get("accepted", {}).items():
+        if "toastmaster" in role.lower() and info.get("waid") == waid:
+            return True
+    return False
+
+
+def _get_max_level_members(ctx: Ctx, exclude_waid: str = None) -> List[Tuple[str, str]]:
+    """Retorna lista de socios de nivel máximo como tuplas (nombre, waid) excluyendo el socio especificado."""
+    if not ctx.club.members:
+        return []
+    
+    max_level = max(m.level for m in ctx.club.members)
+    candidates = [
+        (m.name, m.waid) 
+        for m in ctx.club.members 
+        if m.level == max_level and m.waid != exclude_waid
+    ]
+    return candidates
+
+
 def _can_add_speech(st: dict, waid: str) -> Tuple[bool, str]:
     """
     Valida si se puede agregar un discurso preparado.
     Retorna (puede_agregar, mensaje_error)
+    Usa 'TOASTMASTER_CONFLICT' como código especial para indicar conflicto con rol de Toastmaster.
     """
     speeches, sections = _get_speeches_and_sections(st)
     
-    # 1. Verificar si el socio ya tiene discurso
+    # 1. Verificar si el socio es Toastmaster de la noche (incompatible)
+    if _is_toastmaster(st, waid):
+        return False, "TOASTMASTER_CONFLICT"
+    
+    # 2. Verificar si el socio ya tiene discurso
     if any(s.get("waid") == waid for s in speeches):
         return False, "❌ Ya tienes un discurso preparado registrado para esta sesión."
     
-    # 2. Verificar si el socio ya tiene sección educativa
+    # 3. Verificar si el socio ya tiene sección educativa
     if any(s.get("waid") == waid for s in sections):
         return False, "❌ No puedes dar un discurso preparado si ya tienes una sección educativa."
     
-    # 3. Verificar límite de 3 discursos
+    # 4. Verificar límite de 3 discursos
     if len(speeches) >= 3:
         return False, "❌ Ya se alcanzó el límite de 3 discursos preparados para esta sesión."
     
-    # 4. Verificar incompatibilidad: si hay sección educativa, solo 1 discurso
+    # 5. Verificar incompatibilidad: si hay sección educativa, solo 1 discurso
     if len(sections) > 0 and len(speeches) >= 1:
         return False, "❌ Solo se permite 1 discurso cuando hay una sección educativa en la sesión."
     
@@ -1533,26 +1560,62 @@ def _can_add_section(st: dict, waid: str) -> Tuple[bool, str]:
     """
     Valida si se puede agregar una sección educativa.
     Retorna (puede_agregar, mensaje_error)
+    Usa 'TOASTMASTER_CONFLICT' como código especial para indicar conflicto con rol de Toastmaster.
     """
     speeches, sections = _get_speeches_and_sections(st)
     
-    # 1. Verificar si el socio ya tiene sección educativa
+    # 1. Verificar si el socio es Toastmaster de la noche (incompatible)
+    if _is_toastmaster(st, waid):
+        return False, "TOASTMASTER_CONFLICT"
+    
+    # 2. Verificar si el socio ya tiene sección educativa
     if any(s.get("waid") == waid for s in sections):
         return False, "❌ Ya tienes una sección educativa registrada para esta sesión."
     
-    # 2. Verificar si el socio ya tiene discurso
+    # 3. Verificar si el socio ya tiene discurso
     if any(s.get("waid") == waid for s in speeches):
         return False, "❌ No puedes dar una sección educativa si ya tienes un discurso preparado."
     
-    # 3. Solo puede haber 1 sección educativa
+    # 4. Solo puede haber 1 sección educativa
     if len(sections) >= 1:
         return False, "❌ Ya hay una sección educativa registrada para esta sesión."
     
-    # 4. Verificar incompatibilidad: si hay 2+ discursos, no se permite sección
+    # 5. Verificar incompatibilidad: si hay 2+ discursos, no se permite sección
     if len(speeches) >= 2:
         return False, "❌ No se permite sección educativa cuando hay 2 o más discursos preparados."
     
     return True, ""
+
+
+def _find_toastmaster_replacement(ctx: Ctx, exclude_waid: str) -> Optional[str]:
+    """
+    Busca un socio disponible para reemplazar al Toastmaster de la noche.
+    Retorna waid del candidato o None si no hay disponibles.
+    """
+    st = ctx.state_store.load()
+    
+    # Construir set de socios ya asignados (excepto el Toastmaster actual)
+    assigned = set()
+    for role, info in st.get("accepted", {}).items():
+        waid = info.get("waid")
+        if waid and waid != exclude_waid and "toastmaster" not in role.lower():
+            assigned.add(waid)
+    
+    # Buscar candidatos: nivel suficiente y no asignados
+    toastmaster_role = next((r for r in ctx.club.roles if "toastmaster" in r.name.lower()), None)
+    if not toastmaster_role:
+        return None
+    
+    min_level = toastmaster_role.difficulty
+    candidates = []
+    
+    for m in ctx.club.members:
+        if m.waid == exclude_waid or m.waid in assigned:
+            continue
+        if m.level >= min_level:
+            candidates.append(m.waid)
+    
+    return random.choice(candidates) if candidates else None
 
 
 def _revoke_incompatible_roles(ctx: Ctx, waid: str) -> List[str]:
@@ -1590,6 +1653,61 @@ def _revoke_incompatible_roles(ctx: Ctx, waid: str) -> List[str]:
     return revoked
 
 
+def _check_evaluator_timeouts():
+    """
+    Verifica si hay solicitudes de evaluador que excedieron las 2 horas sin respuesta.
+    Notifica al solicitante y limpia la sesión del evaluador.
+    """
+    import time
+    current_time = int(time.time())
+    timeout_seconds = 2 * 60 * 60  # 2 horas
+    
+    for club_id, ctx in _CTX.items():
+        st = ctx.state_store.load()
+        speeches_updated = False
+        
+        for speech in st.get("prepared_speeches", []):
+            if speech.get("status") != "pendiente_evaluador":
+                continue
+            
+            solicitud_time = speech.get("solicitud_timestamp", 0)
+            if current_time - solicitud_time > timeout_seconds:
+                # Timeout excedido
+                solicitante_waid = speech.get("waid")
+                evaluador_waid = speech.get("evaluador_waid")
+                evaluador_nombre = speech.get("evaluador")
+                
+                # Eliminar el discurso
+                st["prepared_speeches"] = [
+                    s for s in st.get("prepared_speeches", [])
+                    if s.get("id") != speech.get("id")
+                ]
+                speeches_updated = True
+                
+                # Notificar al solicitante
+                if solicitante_waid:
+                    msg = (
+                        f"⏰ {evaluador_nombre} no respondió en las 2 horas.\n\n"
+                        "Por favor, elige otro evaluador desde el menú de miembro."
+                    )
+                    send_text(solicitante_waid, msg)
+                
+                # Limpiar sesión del evaluador si aún está esperando
+                if evaluador_waid:
+                    with SLOCK:
+                        eval_session = SESSION.get(evaluador_waid, {})
+                        if eval_session.get("awaiting") == "evaluator_response":
+                            buffer = eval_session.get("buffer", {})
+                            if buffer.get("speech_id") == speech.get("id"):
+                                SESSION[evaluador_waid] = _default_session()
+                                save_session(evaluador_waid, SESSION[evaluador_waid])
+                
+                log.info(f"Timeout de solicitud de evaluador para speech_id={speech.get('id')}")
+        
+        if speeches_updated:
+            ctx.state_store.save(st)
+
+
 # ======================================================================================
 # 5.1 Router MENÚS con despacho por etiqueta
 # ======================================================================================
@@ -1615,6 +1733,32 @@ def _process_message_router(
 
     if body_norm == "home":
         set_session(waid, awaiting=None, buffer=None, mode="root")
+        send_root_menu(waid)
+        return jsonify({"status": "ok"})
+
+    # Comando RESET rápido para admins (interrumpe cualquier flujo y resetea el club)
+    if body_norm == "reset":
+        acls = admin_clubs(waid)
+        if not acls:
+            send_text(waid, "❌ No tienes permisos de administrador.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return jsonify({"status": "ok"})
+        
+        # Limpiar sesión del usuario (interrumpe cualquier flujo)
+        set_session(waid, awaiting=None, buffer=None, mode="root", club=None)
+        
+        # Resetear club(s)
+        if len(acls) == 1:
+            reset_ctx = _CTX[acls[0]]
+            reset_all(reset_ctx, pretty_name(reset_ctx, waid))
+            send_text(waid, f"♻️ Club '{acls[0]}' reiniciado. Todos los roles y estados fueron limpiados.")
+        else:
+            for club_id in acls:
+                reset_ctx = _CTX[club_id]
+                reset_all(reset_ctx, pretty_name(reset_ctx, waid))
+            send_text(waid, f"♻️ {len(acls)} clubes reiniciados: {', '.join(acls)}")
+        
         send_root_menu(waid)
         return jsonify({"status": "ok"})
 
@@ -1901,6 +2045,171 @@ def _process_message_router(
         _send_theme_confirm_prompt(waid, buffer)
         return None
 
+    # --------- Flujo de cesión de cargo de Toastmaster --------------------------------
+    
+    if awaiting in ("toastmaster_handoff_speech", "toastmaster_handoff_section"):
+        buffer = s.get("buffer", {})
+        club_ctx = _CTX[buffer["club"]]
+        replacement_waid = buffer.get("replacement")
+        action_type = buffer.get("action")  # "speech" o "section"
+        
+        # Detectar respuesta (aceptar botones interactivos o texto)
+        body_clean = body_raw.strip()
+        wants_handoff = (
+            matches_option(body_clean, "✅ Sí, ceder el cargo para dar mi discurso preparado") or
+            matches_option(body_clean, "✅ Sí, ceder el cargo para dar mi sección educativa") or
+            matches_option(body_clean, "Transferir rol") or
+            body_norm in ("1", "si", "sí", "s", "yes", "aceptar", "ceder")
+        )
+        wants_keep = (
+            matches_option(body_clean, "❌ No, quiero conservarlo, sí quiero ser Toastmaster") or
+            matches_option(body_clean, "Conservar rol") or
+            body_norm in ("2", "no", "n", "mantener", "cancelar", "conservar")
+        )
+        
+        if wants_handoff:
+            # Ceder el cargo de Toastmaster
+            st = club_ctx.state_store.load()
+            
+            # Encontrar el rol de Toastmaster
+            toastmaster_role = None
+            for role in st.get("accepted", {}).keys():
+                if "toastmaster" in role.lower():
+                    toastmaster_role = role
+                    break
+            
+            if toastmaster_role and replacement_waid:
+                # Reasignar el rol
+                st["accepted"][toastmaster_role] = {
+                    "waid": replacement_waid,
+                    "name": pretty_name(club_ctx, replacement_waid)
+                }
+                club_ctx.state_store.save(st)
+                
+                # Notificar al nuevo Toastmaster
+                send_text(
+                    replacement_waid,
+                    f"🎉 ¡Felicidades! Has sido asignado como *{toastmaster_role}* para la reunión #{st['round']}.\n\n"
+                    f"{pretty_name(club_ctx, waid)} cedió su cargo para poder dar un {'discurso preparado' if action_type == 'speech' else 'sección educativa'}."
+                )
+                
+                # Confirmar al socio original
+                send_text(
+                    waid,
+                    f"✅ Has cedido el cargo de *{toastmaster_role}* a {pretty_name(club_ctx, replacement_waid)}.\n\n"
+                    f"Ahora puedes continuar con tu {'discurso preparado' if action_type == 'speech' else 'sección educativa'}."
+                )
+                
+                # Continuar con el flujo correspondiente
+                if action_type == "speech":
+                    set_session(waid, awaiting="speech_step1_pathway", buffer={
+                        "waid": waid,
+                        "club": club_ctx.club_id,
+                        "round": st["round"]
+                    })
+                    pathways = [
+                        "Dynamic Leadership",
+                        "Engaging Humor",
+                        "Motivational Strategies",
+                        "Persuasive Influence",
+                        "Presentation Mastery",
+                        "Visionary Communication"
+                    ]
+                    send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
+                else:  # section
+                    set_session(waid, awaiting="section_step1_serie", buffer={
+                        "waid": waid,
+                        "club": club_ctx.club_id,
+                        "round": st["round"]
+                    })
+                    series = [
+                        ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
+                        ("🎖️ Serie del club exitoso", "Gestión de clubes"),
+                        ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
+                        ("💡 Tema libre", "Cualquier tema educativo")
+                    ]
+                    send_list_menu(waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
+                
+                return None
+            else:
+                send_text(waid, "❌ Ocurrió un error al intentar ceder el cargo. Por favor contacta al administrador.")
+                set_session(waid, awaiting=None, buffer=None)
+                send_member_menu(club_ctx, waid)
+                return None
+        
+        elif wants_keep:
+            # Mantener el cargo
+            send_text(waid, "👍 Has decidido mantener tu cargo de Toastmaster. No se realizaron cambios.")
+            set_session(waid, awaiting=None, buffer=None)
+            send_member_menu(club_ctx, waid)
+            return None
+        else:
+            # Respuesta inválida
+            send_text(waid, "❌ Respuesta no válida. Por favor responde:\n1️⃣ para ceder el cargo\n2️⃣ para mantenerlo")
+            return None
+
+    # --------- Flujo de respuesta del evaluador ----------------------------------------
+    
+    if awaiting == "evaluator_response":
+        buffer = s.get("buffer", {})
+        speech_id = buffer.get("speech_id")
+        club_id = buffer.get("club")
+        solicitante_waid = buffer.get("solicitante_waid")
+        solicitante_nombre = buffer.get("solicitante_nombre")
+        
+        if not speech_id or not club_id:
+            send_text(waid, "❌ Error: No se encontró la solicitud.")
+            set_session(waid, awaiting=None, buffer=None)
+            return None
+        
+        club_ctx = _CTX.get(club_id)
+        if not club_ctx:
+            send_text(waid, "❌ Error: Club no encontrado.")
+            set_session(waid, awaiting=None, buffer=None)
+            return None
+        
+        wants_accept = matches_option(body_raw_clean, ("✅ Sí, puedo evaluar", "Aceptar")) or body_norm in ("1", "si", "sí", "aceptar", "acepto")
+        wants_reject = matches_option(body_raw_clean, ("❌ No puedo", "Rechazar")) or body_norm in ("2", "no", "rechazar", "rechazo")
+        
+        if wants_accept:
+            # Actualizar estado del discurso a confirmado
+            st = club_ctx.state_store.load()
+            for speech in st.get("prepared_speeches", []):
+                if speech.get("id") == speech_id:
+                    speech["status"] = "confirmado"
+                    speech["evaluador_confirmado_timestamp"] = int(__import__("time").time())
+                    break
+            club_ctx.state_store.save(st)
+            
+            send_text(waid, f"✅ Perfecto. Confirmas que evaluarás a {solicitante_nombre}.")
+            send_text(solicitante_waid, f"✅ {pretty_name(club_ctx, waid)} aceptó ser tu evaluador.")
+            
+            set_session(waid, awaiting=None, buffer=None)
+            return None
+        
+        if wants_reject:
+            # Eliminar el discurso o marcarlo como rechazado
+            st = club_ctx.state_store.load()
+            st["prepared_speeches"] = [
+                speech for speech in st.get("prepared_speeches", [])
+                if speech.get("id") != speech_id
+            ]
+            club_ctx.state_store.save(st)
+            
+            send_text(waid, "✅ Entendido. Se notificará al solicitante.")
+            send_text(
+                solicitante_waid,
+                f"⚠️ {pretty_name(club_ctx, waid)} no puede evaluarte.\n\n"
+                "Por favor, elige otro evaluador desde el menú de miembro."
+            )
+            
+            set_session(waid, awaiting=None, buffer=None)
+            return None
+        
+        send_text(waid, "❌ Opción inválida. Usa los botones: ✅ Sí, puedo evaluar / ❌ No puedo")
+        send_menu_with_quick_replies(waid, "Responde:", ["✅ Sí, puedo evaluar", "❌ No puedo"])
+        return None
+
     # --------- Flujos Discurso Preparado ----------------------------------------------
     
     # Paso 1: Pathway
@@ -2012,32 +2321,119 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["duracion_min"] = min_time
         buffer["duracion_max"] = max_time
+        
+        # Obtener evaluadores candidatos (nivel máximo, excluyendo al solicitante)
+        ctx_speech = _CTX[buffer["club"]]
+        evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
+        
+        if not evaluadores:
+            send_text(waid, "❌ No hay evaluadores disponibles. Envía el nombre manualmente:")
+            set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+            return None
+        
+        # Enviar menú con evaluadores
         set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
-        send_text(waid, "👤 Envía el nombre de tu evaluador:\n\nEjemplo: María González")
+        evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]  # Solo nombre, sin description
+        # Guardar mapeo nombre -> waid en buffer para recuperarlo después
+        buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
+        set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+        send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
         return None
     
     # Paso 6: Evaluador
     if awaiting == "speech_step6_evaluador":
-        if is_interactive:
-            send_text(waid, "Escribe el nombre del evaluador con texto, sin usar botones.")
-            return None
         buffer = s.get("buffer", {})
-        buffer["evaluador"] = body_raw.strip()
-        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        ctx_speech = _CTX[buffer["club"]]
+        st_speech = ctx_speech.state_store.load()
         
-        # Mostrar resumen y confirmación
-        resumen = (
-            f"📋 *Resumen de tu solicitud de discurso preparado*\n\n"
-            f"📚 Pathway: {buffer['pathway']}\n"
-            f"📊 Nivel: {buffer['nivel']}\n"
-            f"📝 Proyecto: {buffer['proyecto']}\n"
-            f"📢 Título: {buffer['titulo']}\n"
-            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
-            f"👤 Evaluador: {buffer['evaluador']}\n\n"
-            f"¿Es correcta esta información?"
-        )
-        send_text(waid, resumen)
-        send_menu_with_quick_replies(waid, "Confirma tu solicitud:", ["✅ Confirmar", "❌ Cancelar"])
+        # Intentar encontrar al evaluador seleccionado
+        evaluador_waid = None
+        evaluador_nombre = None
+        
+        # Buscar en el mapeo guardado
+        evaluadores_map = buffer.get("evaluadores_map", {})
+        for nombre, waid_eval in evaluadores_map.items():
+            if norm(body_raw.strip()) == norm(nombre) or matches_option(body_raw.strip(), (nombre, "")):
+                evaluador_waid = waid_eval
+                evaluador_nombre = nombre
+                break
+        
+        # Si no se encontró, asumir que es texto libre
+        if not evaluador_waid:
+            evaluador_nombre = body_raw.strip()
+            buffer["evaluador"] = evaluador_nombre
+            buffer["evaluador_waid"] = None
+            set_session(waid, awaiting="speech_confirm_evaluador", buffer=buffer)
+        else:
+            # Validar que el evaluador NO sea el Toastmaster actual
+            if _is_toastmaster(st_speech, evaluador_waid):
+                send_text(
+                    waid,
+                    f"❌ No puedes elegir a {evaluador_nombre} como evaluador porque tiene el cargo de Toastmaster de la noche.\n\n"
+                    "Por favor, selecciona a otro evaluador:"
+                )
+                # Reenviar menú de evaluadores
+                evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
+                evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
+                buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
+                set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+                send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
+                return None
+            
+            buffer["evaluador"] = evaluador_nombre
+            buffer["evaluador_waid"] = evaluador_waid
+            set_session(waid, awaiting="speech_confirm_evaluador", buffer=buffer)
+        
+        # Pedir confirmación del evaluador
+        msg = f"👤 Seleccionaste a {buffer['evaluador']} como tu evaluador.\n\n¿Estás seguro de tu elección?"
+        send_menu_with_quick_replies(waid, msg, ["✅ Sí, confirmar evaluador", "❌ No, elegir otro"])
+        return None
+    
+    # Paso 6b: Confirmación del evaluador
+    if awaiting == "speech_confirm_evaluador":
+        buffer = s.get("buffer", {})
+        ctx_speech = _CTX[buffer["club"]]
+        
+        wants_confirm = matches_option(body_raw_clean, ("✅ Sí, confirmar evaluador", "Confirmar")) or body_norm in ("1", "si", "sí", "confirmar")
+        wants_change = matches_option(body_raw_clean, ("❌ No, elegir otro", "Elegir otro")) or body_norm in ("2", "no", "cambiar")
+        
+        if wants_change:
+            # Volver a mostrar el menú de evaluadores
+            evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
+            if not evaluadores:
+                send_text(waid, "❌ No hay evaluadores disponibles.")
+                set_session(waid, awaiting=None, buffer=None, mode="root")
+                send_root_menu(waid)
+                return None
+            
+            evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
+            buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
+            set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+            send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
+            return None
+        
+        if wants_confirm:
+            # Continuar al resumen
+            set_session(waid, awaiting="speech_confirm", buffer=buffer)
+            
+            # Mostrar resumen y confirmación
+            resumen = (
+                f"📋 *Resumen de tu solicitud de discurso preparado*\n\n"
+                f"📚 Pathway: {buffer['pathway']}\n"
+                f"📊 Nivel: {buffer['nivel']}\n"
+                f"📝 Proyecto: {buffer['proyecto']}\n"
+                f"📢 Título: {buffer['titulo']}\n"
+                f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+                f"👤 Evaluador: {buffer['evaluador']}\n\n"
+                f"¿Es correcta esta información?"
+            )
+            send_text(waid, resumen)
+            send_menu_with_quick_replies(waid, "Confirma tu solicitud:", ["✅ Confirmar", "❌ Cancelar"])
+            return None
+        
+        # Si no confirmó ni rechazó, pedir respuesta válida
+        send_text(waid, "❌ Opción inválida. Usa los botones: ✅ Sí, confirmar evaluador / ❌ No, elegir otro")
+        send_menu_with_quick_replies(waid, f"👤 ¿Confirmas a {buffer.get('evaluador', 'este evaluador')}?", ["✅ Sí, confirmar evaluador", "❌ No, elegir otro"])
         return None
     
     # Confirmación de discurso
@@ -2052,12 +2448,16 @@ def _process_message_router(
             # Revocar roles incompatibles
             revoked = _revoke_incompatible_roles(club_ctx, waid)
             
-            # Guardar discurso
+            # Guardar discurso con estado pendiente
             st = club_ctx.state_store.load()
             if "prepared_speeches" not in st:
                 st["prepared_speeches"] = []
             
+            import time
+            speech_id = f"speech_{int(time.time())}_{waid[-4:]}"
+            
             speech_data = {
+                "id": speech_id,
                 "waid": buffer["waid"],
                 "nombre": pretty_name(club_ctx, buffer["waid"]),
                 "pathway": buffer["pathway"],
@@ -2067,18 +2467,49 @@ def _process_message_router(
                 "duracion_min": buffer["duracion_min"],
                 "duracion_max": buffer["duracion_max"],
                 "evaluador": buffer["evaluador"],
+                "evaluador_waid": buffer.get("evaluador_waid"),
+                "status": "pendiente_evaluador" if buffer.get("evaluador_waid") else "confirmado",
+                "solicitud_timestamp": int(time.time()),
                 "round": buffer["round"]
             }
             st["prepared_speeches"].append(speech_data)
             club_ctx.state_store.save(st)
             
-            msg = f"✅ Discurso preparado registrado exitosamente.\n\n📢 Título: '{buffer['titulo']}'"
+            msg = f"✅ Tu discurso ha sido registrado.\n\n📢 Título: '{buffer['titulo']}'"
             if revoked:
                 msg += f"\n\n⚠️ Se revocaron los siguientes roles por incompatibilidad: {', '.join(revoked)}"
+            
+            # Si hay evaluador con waid, enviar solicitud
+            if buffer.get("evaluador_waid"):
+                evaluador_waid = buffer["evaluador_waid"]
+                solicitud_msg = (
+                    f"📧 {pretty_name(club_ctx, waid)} te ha seleccionado como evaluador de su discurso preparado:\n\n"
+                    f"📚 Pathway: {buffer['pathway']}\n"
+                    f"📊 Nivel: {buffer['nivel']}\n"
+                    f"📋 Proyecto: {buffer['proyecto']}\n"
+                    f"📢 Título: {buffer['titulo']}\n"
+                    f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n\n"
+                    f"¿Puedes evaluar este discurso? Tienes 2 horas para responder."
+                )
+                send_text(evaluador_waid, solicitud_msg)
+                
+                # Configurar sesión del evaluador para esperar respuesta
+                set_session(evaluador_waid, awaiting="evaluator_response", buffer={
+                    "speech_id": speech_id,
+                    "club": buffer["club"],
+                    "solicitante_waid": waid,
+                    "solicitante_nombre": pretty_name(club_ctx, waid)
+                })
+                
+                # Enviar menú con botones
+                send_menu_with_quick_replies(evaluador_waid, "Responde:", ["✅ Sí, puedo evaluar", "❌ No puedo"])
+                
+                msg += f"\n\n📧 Se envió solicitud a {buffer['evaluador']}. Tiene 2 horas para confirmar."
             
             send_text(waid, msg)
             set_session(waid, awaiting=None, buffer=None, mode="root")
             send_root_menu(waid)
+            return None
             return None
         
         if wants_cancel:
@@ -2359,8 +2790,44 @@ def _process_message_router(
             st = ctx_member.state_store.load()
             can_add, error_msg = _can_add_speech(st, waid)
             if not can_add:
-                send_text(waid, error_msg)
-                send_member_menu(ctx_member, waid)
+                if error_msg == "TOASTMASTER_CONFLICT":
+                    # El socio es Toastmaster, preguntar si quiere ceder el rol
+                    replacement = _find_toastmaster_replacement(ctx_member, waid)
+                    if replacement:
+                        # Enviar primero el mensaje explicativo
+                        explanation = (
+                            "⚠️ No puedes dar un discurso preparado siendo Toastmaster de la noche, "
+                            "ya que no puedes presentarte a ti mismo.\n\n"
+                            f"📢 Encontramos a {pretty_name(ctx_member, replacement)} disponible para reemplazarte."
+                        )
+                        send_text(waid, explanation)
+                        
+                        # Configurar sesión
+                        set_session(waid, awaiting="toastmaster_handoff_speech", buffer={
+                            "waid": waid,
+                            "club": ctx_member.club_id,
+                            "round": st["round"],
+                            "replacement": replacement,
+                            "action": "speech"
+                        })
+                        
+                        # Enviar menú con la pregunta
+                        options = [
+                            ("✅ Sí, ceder el cargo para dar mi discurso preparado", "Transferir rol"),
+                            ("❌ No, quiero conservarlo, sí quiero ser Toastmaster", "Conservar rol")
+                        ]
+                        send_list_menu(waid, "❓ ¿Quieres ceder el cargo a otro socio?", options, "Responder")
+                    else:
+                        msg = (
+                            "⚠️ No puedes dar un discurso preparado siendo Toastmaster de la noche, "
+                            "ya que no puedes presentarte a ti mismo.\n\n"
+                            "❌ Lamentablemente, no hay socios disponibles para reemplazarte en este momento."
+                        )
+                        send_text(waid, msg)
+                        send_member_menu(ctx_member, waid)
+                else:
+                    send_text(waid, error_msg)
+                    send_member_menu(ctx_member, waid)
                 return jsonify({"status": "ok"})
             
             # Iniciar flujo de captura de discurso preparado
@@ -2384,8 +2851,44 @@ def _process_message_router(
             st = ctx_member.state_store.load()
             can_add, error_msg = _can_add_section(st, waid)
             if not can_add:
-                send_text(waid, error_msg)
-                send_member_menu(ctx_member, waid)
+                if error_msg == "TOASTMASTER_CONFLICT":
+                    # El socio es Toastmaster, preguntar si quiere ceder el rol
+                    replacement = _find_toastmaster_replacement(ctx_member, waid)
+                    if replacement:
+                        # Enviar primero el mensaje explicativo
+                        explanation = (
+                            "⚠️ No puedes dar una sección educativa siendo Toastmaster de la noche, "
+                            "ya que no puedes presentarte a ti mismo.\n\n"
+                            f"📢 Encontramos a {pretty_name(ctx_member, replacement)} disponible para reemplazarte."
+                        )
+                        send_text(waid, explanation)
+                        
+                        # Configurar sesión
+                        set_session(waid, awaiting="toastmaster_handoff_section", buffer={
+                            "waid": waid,
+                            "club": ctx_member.club_id,
+                            "round": st["round"],
+                            "replacement": replacement,
+                            "action": "section"
+                        })
+                        
+                        # Enviar menú con la pregunta
+                        options = [
+                            ("✅ Sí, ceder el cargo para dar mi sección educativa", "Transferir rol"),
+                            ("❌ No, quiero conservarlo, sí quiero ser Toastmaster", "Conservar rol")
+                        ]
+                        send_list_menu(waid, "❓ ¿Quieres ceder el cargo a otro socio?", options, "Responder")
+                    else:
+                        msg = (
+                            "⚠️ No puedes dar una sección educativa siendo Toastmaster de la noche, "
+                            "ya que no puedes presentarte a ti mismo.\n\n"
+                            "❌ Lamentablemente, no hay socios disponibles para reemplazarte en este momento."
+                        )
+                        send_text(waid, msg)
+                        send_member_menu(ctx_member, waid)
+                else:
+                    send_text(waid, error_msg)
+                    send_member_menu(ctx_member, waid)
                 return jsonify({"status": "ok"})
             
             # Iniciar flujo de captura de sección educativa
@@ -2529,28 +3032,6 @@ def _process_message_router(
             send_text(waid, "No se pudo determinar tu club.")
             return jsonify({"status": "ok"})
 
-    if body_norm == "reset":
-        acls = admin_clubs(waid)
-        if acls:
-            # Si es admin de un solo club, resetear ese club
-            if len(acls) == 1:
-                reset_ctx = _CTX[acls[0]]
-                send_text(waid, reset_all(reset_ctx, pretty_name(reset_ctx, waid)))
-                send_root_menu(waid)
-                return jsonify({"status": "ok"})
-            # Si es admin de múltiples clubs, resetear todos
-            else:
-                for club_id in acls:
-                    reset_ctx = _CTX[club_id]
-                    reset_all(reset_ctx, pretty_name(reset_ctx, waid))
-                send_text(waid, f"♻️ Se reiniciaron {len(acls)} clubes: {', '.join(acls)}")
-                send_root_menu(waid)
-                return jsonify({"status": "ok"})
-        else:
-            send_text(waid, "❌ No tienes permisos de administrador.")
-            send_root_menu(waid)
-            return jsonify({"status": "ok"})
-    
     # Comando de prueba para enviar confirmaciones (solo admins)
     if body_norm in ("test confirmaciones", "enviar confirmaciones"):
         acls = admin_clubs(waid)
@@ -2730,6 +3211,12 @@ def _is_interactive_reply(msg: dict) -> bool:
 
 @app.route("/webhook", methods=["POST"])
 def webhook_post():
+    # Verificar timeouts de solicitudes de evaluador
+    try:
+        _check_evaluator_timeouts()
+    except Exception as e:
+        log.exception("Error al verificar timeouts de evaluador: %s", e)
+    
     data = request.get_json(force=True, silent=True) or {}
     try:
         if _is_gupshup_event(data):
