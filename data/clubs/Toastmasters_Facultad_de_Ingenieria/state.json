@@ -13,19 +13,19 @@
   "canceled": false,
   "prepared_speeches": [
     {
-      "id": "speech_1765229912_5442",
+      "id": "speech_1765231033_5442",
       "waid": "5212293655442",
       "nombre": "Paco",
       "pathway": "Persuasive Influence",
-      "nivel": 3,
-      "proyecto": "L",
-      "titulo": "K",
+      "nivel": 1,
+      "proyecto": "Rompehielos",
+      "titulo": "¿Cómo ser papá?",
       "duracion_min": 5,
       "duracion_max": 7,
       "evaluador": "Claudia Vazquez",
       "evaluador_waid": "5215586466230",
       "status": "pendiente_evaluador",
-      "solicitud_timestamp": 1765229912,
+      "solicitud_timestamp": 1765231033,
       "round": 0
     }
   ]

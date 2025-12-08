@@ -1503,6 +1503,38 @@ def _get_speeches_and_sections(st: dict) -> Tuple[list, list]:
     return speeches, sections
 
 
+def _extract_duration_numbers(text: str) -> Tuple[int, int]:
+    """
+    Extrae dos números de un texto y retorna (min, max) ordenados.
+    Ejemplos válidos:
+    - "5-7" -> (5, 7)
+    - "de 5 a 7 minutos" -> (5, 7)
+    - "máximo 7 y mínimo 5" -> (5, 7)
+    - "entre 5 y 7" -> (5, 7)
+    
+    Retorna (None, None) si no encuentra exactamente 2 números.
+    """
+    import re
+    # Extraer todos los números del texto
+    numbers = re.findall(r'\d+', text)
+    
+    if len(numbers) != 2:
+        return None, None
+    
+    try:
+        num1 = int(numbers[0])
+        num2 = int(numbers[1])
+        
+        # Validar que sean positivos
+        if num1 <= 0 or num2 <= 0:
+            return None, None
+        
+        # Retornar ordenados (menor primero)
+        return (min(num1, num2), max(num1, num2))
+    except (ValueError, IndexError):
+        return None, None
+
+
 def _is_toastmaster(st: dict, waid: str) -> bool:
     """Verifica si el socio tiene el rol de Toastmaster de la noche."""
     for role, info in st.get("accepted", {}).items():
@@ -2327,25 +2359,16 @@ def _process_message_router(
     # Paso 5: Duración
     if awaiting == "speech_step5_duracion":
         if is_interactive:
-            send_text(waid, "Escribe la duración con texto en formato min-max, sin usar botones.")
+            send_text(waid, "Escribe la duración con texto, sin usar botones.")
             return jsonify({"status": "ok"})
         duration_text = body_raw.strip()
-        # Validar formato min-max
-        if "-" not in duration_text:
-            send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
+        
+        # Extraer números con regex (flexible)
+        min_time, max_time = _extract_duration_numbers(duration_text)
+        
+        if min_time is None or max_time is None:
+            send_text(waid, "❌ No pude identificar la duración. Por favor envía dos números.\n\nEjemplos válidos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
             return jsonify({"status": "ok"})
-        parts = duration_text.split("-")
-        if len(parts) != 2:
-            send_text(waid, "❌ Formato inválido. Usa el formato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
-            return jsonify({"status": "ok"})
-        try:
-            min_time = int(parts[0].strip())
-            max_time = int(parts[1].strip())
-            if min_time <= 0 or max_time <= 0 or min_time > max_time:
-                raise ValueError()
-        except ValueError:
-            send_text(waid, "❌ Los tiempos deben ser números positivos válidos, con mínimo menor que máximo.")
-            return None
         
         buffer = s.get("buffer", {})
         buffer["duracion_min"] = min_time
@@ -2427,8 +2450,20 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         ctx_speech = _CTX[buffer["club"]]
         
-        wants_confirm = matches_option(body_raw_clean, ("✅ Sí, confirmar evaluador", "Confirmar")) or body_norm in ("1", "si", "sí", "confirmar")
-        wants_change = matches_option(body_raw_clean, ("❌ No, elegir otro", "Elegir otro")) or body_norm in ("2", "no", "cambiar")
+        # Normalizar para comparación más flexible
+        body_lower = body_raw.strip().lower()
+        
+        wants_confirm = (
+            matches_option(body_raw_clean, ("✅ Sí, confirmar evaluador", "Confirmar")) or 
+            "confirmar" in body_lower or 
+            body_norm in ("1", "si", "sí") or
+            "sí" in body_lower
+        )
+        wants_change = (
+            matches_option(body_raw_clean, ("❌ No, elegir otro", "Elegir otro")) or 
+            "elegir otro" in body_lower or
+            body_norm in ("2", "no", "cambiar")
+        )
         
         if wants_change:
             # Volver a mostrar el menú de evaluadores
@@ -2458,22 +2493,46 @@ def _process_message_router(
                 f"📢 Título: {buffer['titulo']}\n"
                 f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
                 f"👤 Evaluador: {buffer['evaluador']}\n\n"
-                f"¿Es correcta esta información?"
             )
             send_text(waid, resumen)
-            send_menu_with_quick_replies(waid, "Confirma tu solicitud:", ["✅ Confirmar", "❌ Cancelar"])
+            confirm_options = [
+                ("✅ Confirmar y registrar", "Confirmar"),
+                ("✏️ Corregir datos", "Corregir"),
+                ("❌ Cancelar registro", "Cancelar")
+            ]
+            send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
             return None
         
         # Si no confirmó ni rechazó, pedir respuesta válida
-        send_text(waid, "❌ Opción inválida. Usa los botones: ✅ Sí, confirmar evaluador / ❌ No, elegir otro")
-        send_menu_with_quick_replies(waid, f"👤 ¿Confirmas a {buffer.get('evaluador', 'este evaluador')}?", ["✅ Sí, confirmar evaluador", "❌ No, elegir otro"])
+        send_text(waid, "❌ Opción inválida. Usa los botones para responder.")
+        confirm_options = [
+            ("✅ Sí, confirmar evaluador", "Confirmar"),
+            ("❌ No, elegir otro", "Elegir otro")
+        ]
+        send_list_menu(waid, f"👤 ¿Confirmas a {buffer.get('evaluador', 'este evaluador')}?", confirm_options, "Responder")
         return None
     
     # Confirmación de discurso
     if awaiting == "speech_confirm":
         buffer = s.get("buffer", {})
-        wants_confirm = matches_option(body_raw_clean, ("✅ Confirmar", "Confirmar")) or body_norm in ("1", "confirmar", "si", "sí", "ok")
-        wants_cancel = matches_option(body_raw_clean, ("❌ Cancelar", "Cancelar")) or body_norm in ("2", "cancelar", "no")
+        wants_confirm = matches_option(body_raw_clean, ("✅ Confirmar y registrar", "Confirmar")) or body_norm in ("1", "confirmar", "si", "sí", "ok")
+        wants_correct = matches_option(body_raw_clean, ("✏️ Corregir datos", "Corregir")) or body_norm in ("2", "corregir", "editar")
+        wants_cancel = matches_option(body_raw_clean, ("❌ Cancelar registro", "Cancelar")) or body_norm in ("3", "cancelar", "no")
+        
+        if wants_correct:
+            # Mostrar menú para elegir qué corregir
+            send_text(waid, "✏️ ¿Qué dato deseas corregir?")
+            correct_options = [
+                ("📚 Pathway", "pathway"),
+                ("📊 Nivel", "nivel"),
+                ("📝 Proyecto", "proyecto"),
+                ("📢 Título", "titulo"),
+                ("⏱️ Duración", "duracion"),
+                ("👤 Evaluador", "evaluador")
+            ]
+            set_session(waid, awaiting="speech_correct_choice", buffer=buffer)
+            send_list_menu(waid, "Selecciona el campo a corregir:", correct_options, "Corregir campo")
+            return None
         
         if wants_confirm:
             club_ctx = _CTX[buffer["club"]]
@@ -2552,9 +2611,290 @@ def _process_message_router(
             return None
         
         if is_interactive:
-            send_text(waid, "❗Opción inválida. Usa los botones: ✅ Confirmar / ❌ Cancelar.")
+            send_text(waid, "❗Opción inválida. Usa los botones: ✅ Confirmar / ✏️ Corregir / ❌ Cancelar.")
         else:
-            send_text(waid, "Opción inválida. Envía 1 para confirmar o 2 para cancelar.")
+            send_text(waid, "Opción inválida. Envía 1 para confirmar, 2 para corregir o 3 para cancelar.")
+        return None
+
+    # Corrección de campos
+    if awaiting == "speech_correct_choice":
+        buffer = s.get("buffer", {})
+        ctx_speech = _CTX[buffer["club"]]
+        
+        # Detectar qué campo quiere corregir
+        field_to_correct = None
+        if matches_option(body_raw_clean, ("📚 Pathway", "pathway")) or "pathway" in body_norm:
+            field_to_correct = "pathway"
+        elif matches_option(body_raw_clean, ("📊 Nivel", "nivel")) or "nivel" in body_norm:
+            field_to_correct = "nivel"
+        elif matches_option(body_raw_clean, ("📝 Proyecto", "proyecto")) or "proyecto" in body_norm:
+            field_to_correct = "proyecto"
+        elif matches_option(body_raw_clean, ("📢 Título", "titulo")) or "titulo" in body_norm or "título" in body_norm:
+            field_to_correct = "titulo"
+        elif matches_option(body_raw_clean, ("⏱️ Duración", "duracion")) or "duracion" in body_norm or "duración" in body_norm:
+            field_to_correct = "duracion"
+        elif matches_option(body_raw_clean, ("👤 Evaluador", "evaluador")) or "evaluador" in body_norm:
+            field_to_correct = "evaluador"
+        
+        if not field_to_correct:
+            send_text(waid, "❌ Opción inválida. Por favor selecciona un campo válido.")
+            correct_options = [
+                ("📚 Pathway", "pathway"),
+                ("📊 Nivel", "nivel"),
+                ("📝 Proyecto", "proyecto"),
+                ("📢 Título", "titulo"),
+                ("⏱️ Duración", "duracion"),
+                ("👤 Evaluador", "evaluador")
+            ]
+            send_list_menu(waid, "Selecciona el campo a corregir:", correct_options, "Corregir campo")
+            return None
+        
+        # Redirigir al paso correspondiente según el campo con estado de corrección
+        if field_to_correct == "pathway":
+            send_text(waid, "✏️ Corrigiendo Pathway...")
+            pathways = ["Liderazgo dinámico", "Persuasión efectiva", "Presentación estratégica", "Presentaciones motivacionales", "Liderazgo visionario"]
+            send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
+            set_session(waid, awaiting="speech_correct_pathway", buffer=buffer)
+        elif field_to_correct == "nivel":
+            send_text(waid, "✏️ Corrigiendo Nivel...")
+            nivel_options = [
+                ("1️⃣ Nivel 1", "Nivel 1"),
+                ("2️⃣ Nivel 2", "Nivel 2"),
+                ("3️⃣ Nivel 3", "Nivel 3"),
+                ("4️⃣ Nivel 4", "Nivel 4"),
+                ("5️⃣ Nivel 5", "Nivel 5")
+            ]
+            send_list_menu(waid, "📊 Selecciona el nivel de tu proyecto:", nivel_options, "Elegir nivel")
+            set_session(waid, awaiting="speech_correct_nivel", buffer=buffer)
+        elif field_to_correct == "proyecto":
+            send_text(waid, "✏️ Corrigiendo Proyecto...\n\n📝 Envía el nuevo nombre de tu proyecto:")
+            set_session(waid, awaiting="speech_correct_proyecto", buffer=buffer)
+        elif field_to_correct == "titulo":
+            send_text(waid, "✏️ Corrigiendo Título...\n\n📢 Envía el nuevo título de tu discurso:")
+            set_session(waid, awaiting="speech_correct_titulo", buffer=buffer)
+        elif field_to_correct == "duracion":
+            send_text(waid, "✏️ Corrigiendo Duración...\n\n⏱️ Envía la nueva duración en formato: MIN-MAX\n\nEjemplo: 5-7")
+            set_session(waid, awaiting="speech_correct_duracion", buffer=buffer)
+        elif field_to_correct == "evaluador":
+            send_text(waid, "✏️ Corrigiendo Evaluador...")
+            evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
+            if not evaluadores:
+                send_text(waid, "❌ No hay evaluadores disponibles.")
+                set_session(waid, awaiting=None, buffer=None, mode="root")
+                send_root_menu(waid)
+                return None
+            evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
+            buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
+            set_session(waid, awaiting="speech_correct_evaluador", buffer=buffer)
+            send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
+        
+        return None
+    
+    # Handlers de corrección individuales que regresan al resumen
+    if awaiting == "speech_correct_pathway":
+        buffer = s.get("buffer", {})
+        pathways = ["Liderazgo dinámico", "Persuasión efectiva", "Presentación estratégica", "Presentaciones motivacionales", "Liderazgo visionario"]
+        if body_raw.strip() in pathways or any(matches_option(body_raw_clean, (p, "")) for p in pathways):
+            buffer["pathway"] = body_raw.strip()
+            set_session(waid, awaiting="speech_confirm", buffer=buffer)
+            # Mostrar resumen actualizado
+            resumen = (
+                f"📋 *Resumen actualizado*\n\n"
+                f"📚 Pathway: {buffer['pathway']}\n"
+                f"📊 Nivel: {buffer['nivel']}\n"
+                f"📝 Proyecto: {buffer['proyecto']}\n"
+                f"📢 Título: {buffer['titulo']}\n"
+                f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+                f"👤 Evaluador: {buffer['evaluador']}\n\n"
+            )
+            send_text(waid, resumen)
+            confirm_options = [
+                ("✅ Confirmar y registrar", "Confirmar"),
+                ("✏️ Corregir datos", "Corregir"),
+                ("❌ Cancelar registro", "Cancelar")
+            ]
+            send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+            return None
+        else:
+            send_text(waid, "❌ Pathway inválido. Selecciona uno de la lista:")
+            send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
+            return None
+    
+    if awaiting == "speech_correct_nivel":
+        buffer = s.get("buffer", {})
+        nivel_seleccionado = None
+        if "nivel 1" in body_norm or body_norm == "1":
+            nivel_seleccionado = 1
+        elif "nivel 2" in body_norm or body_norm == "2":
+            nivel_seleccionado = 2
+        elif "nivel 3" in body_norm or body_norm == "3":
+            nivel_seleccionado = 3
+        elif "nivel 4" in body_norm or body_norm == "4":
+            nivel_seleccionado = 4
+        elif "nivel 5" in body_norm or body_norm == "5":
+            nivel_seleccionado = 5
+        
+        if not nivel_seleccionado:
+            send_text(waid, "❌ Nivel inválido. Por favor selecciona un nivel del 1 al 5.")
+            nivel_options = [
+                ("1️⃣ Nivel 1", "Nivel 1"),
+                ("2️⃣ Nivel 2", "Nivel 2"),
+                ("3️⃣ Nivel 3", "Nivel 3"),
+                ("4️⃣ Nivel 4", "Nivel 4"),
+                ("5️⃣ Nivel 5", "Nivel 5")
+            ]
+            send_list_menu(waid, "📊 Selecciona el nivel de tu proyecto:", nivel_options, "Elegir nivel")
+            return None
+        
+        buffer["nivel"] = nivel_seleccionado
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        # Mostrar resumen actualizado
+        resumen = (
+            f"📋 *Resumen actualizado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+        )
+        send_text(waid, resumen)
+        confirm_options = [
+            ("✅ Confirmar y registrar", "Confirmar"),
+            ("✏️ Corregir datos", "Corregir"),
+            ("❌ Cancelar registro", "Cancelar")
+        ]
+        send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+        return None
+    
+    if awaiting == "speech_correct_proyecto":
+        buffer = s.get("buffer", {})
+        buffer["proyecto"] = body_raw.strip()
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        # Mostrar resumen actualizado
+        resumen = (
+            f"📋 *Resumen actualizado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+        )
+        send_text(waid, resumen)
+        confirm_options = [
+            ("✅ Confirmar y registrar", "Confirmar"),
+            ("✏️ Corregir datos", "Corregir"),
+            ("❌ Cancelar registro", "Cancelar")
+        ]
+        send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+        return None
+    
+    if awaiting == "speech_correct_titulo":
+        buffer = s.get("buffer", {})
+        buffer["titulo"] = body_raw.strip()
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        # Mostrar resumen actualizado
+        resumen = (
+            f"📋 *Resumen actualizado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+        )
+        send_text(waid, resumen)
+        confirm_options = [
+            ("✅ Confirmar y registrar", "Confirmar"),
+            ("✏️ Corregir datos", "Corregir"),
+            ("❌ Cancelar registro", "Cancelar")
+        ]
+        send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+        return None
+    
+    if awaiting == "speech_correct_duracion":
+        buffer = s.get("buffer", {})
+        duration_text = body_raw.strip()
+        
+        # Extraer números con regex (flexible)
+        min_time, max_time = _extract_duration_numbers(duration_text)
+        
+        if min_time is None or max_time is None:
+            send_text(waid, "❌ No pude identificar la duración. Por favor envía dos números.\n\nEjemplos válidos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
+            return None
+        
+        buffer["duracion_min"] = min_time
+        buffer["duracion_max"] = max_time
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        # Mostrar resumen actualizado
+        resumen = (
+            f"📋 *Resumen actualizado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+        )
+        send_text(waid, resumen)
+        confirm_options = [
+            ("✅ Confirmar y registrar", "Confirmar"),
+            ("✏️ Corregir datos", "Corregir"),
+            ("❌ Cancelar registro", "Cancelar")
+        ]
+        send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+        return None
+    
+    if awaiting == "speech_correct_evaluador":
+        buffer = s.get("buffer", {})
+        ctx_speech = _CTX[buffer["club"]]
+        st_speech = ctx_speech.state_store.load()
+        
+        evaluador_waid = None
+        evaluador_nombre = None
+        evaluadores_map = buffer.get("evaluadores_map", {})
+        
+        for nombre, waid_eval in evaluadores_map.items():
+            if norm(body_raw.strip()) == norm(nombre) or matches_option(body_raw.strip(), (nombre, "")):
+                evaluador_waid = waid_eval
+                evaluador_nombre = nombre
+                break
+        
+        if not evaluador_waid:
+            evaluador_nombre = body_raw.strip()
+            buffer["evaluador"] = evaluador_nombre
+            buffer["evaluador_waid"] = None
+        else:
+            if _is_toastmaster(st_speech, evaluador_waid):
+                send_text(waid, f"❌ No puedes elegir a {evaluador_nombre} como evaluador porque tiene el cargo de Toastmaster de la noche.\n\nPor favor, selecciona a otro evaluador:")
+                evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
+                evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
+                buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
+                set_session(waid, awaiting="speech_correct_evaluador", buffer=buffer)
+                send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
+                return None
+            buffer["evaluador"] = evaluador_nombre
+            buffer["evaluador_waid"] = evaluador_waid
+        
+        set_session(waid, awaiting="speech_confirm", buffer=buffer)
+        # Mostrar resumen actualizado
+        resumen = (
+            f"📋 *Resumen actualizado*\n\n"
+            f"📚 Pathway: {buffer['pathway']}\n"
+            f"📊 Nivel: {buffer['nivel']}\n"
+            f"📝 Proyecto: {buffer['proyecto']}\n"
+            f"📢 Título: {buffer['titulo']}\n"
+            f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n"
+            f"👤 Evaluador: {buffer['evaluador']}\n\n"
+        )
+        send_text(waid, resumen)
+        confirm_options = [
+            ("✅ Confirmar y registrar", "Confirmar"),
+            ("✏️ Corregir datos", "Corregir"),
+            ("❌ Cancelar registro", "Cancelar")
+        ]
+        send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
         return None
 
     # --------- Flujos Sección Educativa -----------------------------------------------
