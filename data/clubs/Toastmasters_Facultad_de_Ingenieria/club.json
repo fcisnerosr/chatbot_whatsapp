@@ -4,7 +4,7 @@
       "name": "Daniel",
       "waid": "5219212671618",
       "is_guest": false,
-      "level": 1,
+      "level": 6,
       "roles_done": []
     },
     {
@@ -23,7 +23,7 @@
       "name": "Marcos",
       "waid": "5212721073312",
       "is_guest": false,
-      "level": 2,
+      "level": 6,
       "roles_done": [
         "Evaluador del tiempo"
       ]
@@ -38,6 +38,13 @@
         "Evaluador gramatical",
         "Toastmasters de la noche"
       ]
+    },
+    {
+      "name": "Roger",
+      "waid": "5215634948177",
+      "is_guest": false,
+      "level": 6,
+      "roles_done": []
     }
   ],
   "roles": [

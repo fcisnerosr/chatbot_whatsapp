@@ -2255,22 +2255,51 @@ def _process_message_router(
         buffer["pathway"] = matched_pathway
         log.info("✅ Pathway guardado: %s - Avanzando al paso 2 (nivel)", matched_pathway)
         set_session(waid, awaiting="speech_step2_nivel", buffer=buffer)
-        send_menu_with_quick_replies(waid, "📊 Selecciona el nivel de tu proyecto:", ["1", "2", "3", "4", "5"])
+        
+        # Enviar mensaje con botones de nivel
+        nivel_options = [
+            ("1️⃣ Nivel 1"),
+            ("2️⃣ Nivel 2"),
+            ("3️⃣ Nivel 3"),
+            ("4️⃣ Nivel 4"),
+            ("5️⃣ Nivel 5")
+        ]
+        send_list_menu(waid, "📊 Selecciona el nivel de tu proyecto:", nivel_options, "Elegir nivel")
         return jsonify({"status": "ok"})
     
     # Paso 2: Nivel
     if awaiting == "speech_step2_nivel":
-        if is_interactive:
-            send_text(waid, "Por favor selecciona un nivel del 1 al 5 usando los botones.")
+        # Detectar nivel seleccionado
+        nivel_seleccionado = None
+        
+        # Intentar detectar desde opciones del menú
+        if "nivel 1" in body_norm or body_norm == "1":
+            nivel_seleccionado = 1
+        elif "nivel 2" in body_norm or body_norm == "2":
+            nivel_seleccionado = 2
+        elif "nivel 3" in body_norm or body_norm == "3":
+            nivel_seleccionado = 3
+        elif "nivel 4" in body_norm or body_norm == "4":
+            nivel_seleccionado = 4
+        elif "nivel 5" in body_norm or body_norm == "5":
+            nivel_seleccionado = 5
+        
+        if not nivel_seleccionado:
+            send_text(waid, "❌ Nivel inválido. Por favor selecciona un nivel del 1 al 5.")
+            nivel_options = [
+                ("1️⃣ Nivel 1", "Nivel 1"),
+                ("2️⃣ Nivel 2", "Nivel 2"),
+                ("3️⃣ Nivel 3", "Nivel 3"),
+                ("4️⃣ Nivel 4", "Nivel 4"),
+                ("5️⃣ Nivel 5", "Nivel 5")
+            ]
+            send_list_menu(waid, "📊 Selecciona el nivel de tu proyecto:", nivel_options, "Elegir nivel")
             return jsonify({"status": "ok"})
-        if not is_number or body_norm not in ["1", "2", "3", "4", "5"]:
-            send_text(waid, "❌ Nivel inválido. Envía un número del 1 al 5.")
-            send_menu_with_quick_replies(waid, "📊 Selecciona el nivel:", ["1", "2", "3", "4", "5"])
-            return jsonify({"status": "ok"})
+        
         buffer = s.get("buffer", {})
-        buffer["nivel"] = int(body_norm)
+        buffer["nivel"] = nivel_seleccionado
         set_session(waid, awaiting="speech_step3_proyecto", buffer=buffer)
-        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Comunicación en Crisis'")
+        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Rompehielos' o 'Desarrollo de la comunicación no verbal'")
         return jsonify({"status": "ok"})
     
     # Paso 3: Nombre del proyecto
@@ -2813,7 +2842,7 @@ def _process_message_router(
                         
                         # Enviar menú con la pregunta
                         options = [
-                            ("✅ Sí, ceder el cargo para dar mi discurso preparado", "Transferir rol"),
+                            ("✅ Sí, ceder el cargo", "Transferir rol"),
                             ("❌ No, quiero conservarlo, sí quiero ser Toastmaster", "Conservar rol")
                         ]
                         send_list_menu(waid, "❓ ¿Quieres ceder el cargo a otro socio?", options, "Responder")
@@ -2874,7 +2903,7 @@ def _process_message_router(
                         
                         # Enviar menú con la pregunta
                         options = [
-                            ("✅ Sí, ceder el cargo para dar mi sección educativa", "Transferir rol"),
+                            ("✅ Sí, ceder el cargo", "Transferir rol"),
                             ("❌ No, quiero conservarlo, sí quiero ser Toastmaster", "Conservar rol")
                         ]
                         send_list_menu(waid, "❓ ¿Quieres ceder el cargo a otro socio?", options, "Responder")
