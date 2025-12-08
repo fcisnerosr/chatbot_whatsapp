@@ -2414,8 +2414,12 @@ def _process_message_router(
             set_session(waid, awaiting="speech_confirm_evaluador", buffer=buffer)
         
         # Pedir confirmación del evaluador
-        msg = f"👤 Seleccionaste a {buffer['evaluador']} como tu evaluador.\n\n¿Estás seguro de tu elección?"
-        send_menu_with_quick_replies(waid, msg, ["✅ Sí, confirmar evaluador", "❌ No, elegir otro"])
+        send_text(waid, f"👤 Seleccionaste a {buffer['evaluador']} como tu evaluador.")
+        confirm_options = [
+            ("✅ Sí, confirmo evaluador", "Confirmar"),
+            ("❌ No, elegir otro", "Elegir otro")
+        ]
+        send_list_menu(waid, "¿Estás seguro de tu elección?", confirm_options, "Responder")
         return None
     
     # Paso 6b: Confirmación del evaluador

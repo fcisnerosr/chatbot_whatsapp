@@ -1,31 +1,6 @@
 {
-  "round": 1,
-  "pending": {
-    "Toastmasters de la noche": {
-      "candidate": "5215634948177",
-      "declined_by": [],
-      "accepted": false,
-      "timestamp": 1765229227.2424757
-    },
-    "Topic Master: Director de temas improvisados": {
-      "candidate": "5212721073312",
-      "declined_by": [],
-      "accepted": false,
-      "timestamp": 1765229227.242525
-    },
-    "Evaluador de muletillas": {
-      "candidate": "5219212671618",
-      "declined_by": [],
-      "accepted": false,
-      "timestamp": 1765229227.2425663
-    },
-    "Evaluador del tiempo": {
-      "candidate": "5215586466230",
-      "declined_by": [],
-      "accepted": false,
-      "timestamp": 1765229227.2426052
-    }
-  },
+  "round": 0,
+  "pending": {},
   "accepted": {},
   "members_cycle": {
     "5219212671618": [],
@@ -38,20 +13,20 @@
   "canceled": false,
   "prepared_speeches": [
     {
-      "id": "speech_1765229428_5442",
+      "id": "speech_1765229912_5442",
       "waid": "5212293655442",
       "nombre": "Paco",
-      "pathway": "Motivational Strategies",
-      "nivel": 1,
-      "proyecto": "Rompehielos",
-      "titulo": "Como ser papá",
+      "pathway": "Persuasive Influence",
+      "nivel": 3,
+      "proyecto": "L",
+      "titulo": "K",
       "duracion_min": 5,
       "duracion_max": 7,
       "evaluador": "Claudia Vazquez",
       "evaluador_waid": "5215586466230",
       "status": "pendiente_evaluador",
-      "solicitud_timestamp": 1765229428,
-      "round": 1
+      "solicitud_timestamp": 1765229912,
+      "round": 0
     }
   ]
 }
