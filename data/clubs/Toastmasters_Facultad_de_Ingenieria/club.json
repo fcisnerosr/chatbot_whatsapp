@@ -19,6 +19,7 @@
         "Toastmasters de la noche",
         "Evaluador del tiempo",
         "Evaluador gramatical",
+        "Topic Master: Director de temas improvisados",
         "Topic Master: Director de temas improvisados"
       ]
     },
@@ -28,6 +29,7 @@
       "is_guest": false,
       "level": 6,
       "roles_done": [
+        "Evaluador del tiempo",
         "Evaluador del tiempo"
       ]
     },
@@ -47,7 +49,9 @@
       "waid": "5215634948177",
       "is_guest": false,
       "level": 6,
-      "roles_done": []
+      "roles_done": [
+        "Toastmasters de la noche"
+      ]
     }
   ],
   "roles": [

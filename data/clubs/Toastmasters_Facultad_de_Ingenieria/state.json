@@ -1,14 +1,81 @@
 {
-  "round": 0,
-  "pending": {},
-  "accepted": {},
+  "round": 1,
+  "pending": {
+    "Evaluador gramatical": {
+      "candidate": "5219212671618",
+      "declined_by": [],
+      "accepted": false,
+      "timestamp": 1765250894.3990903
+    },
+    "Toastmasters de la noche": {
+      "waid": "5212721073312",
+      "nombre": "Marcos",
+      "propuesto_por": "Roger",
+      "timestamp": 1765251349
+    },
+    "Topic Master: Director de temas improvisados": {
+      "candidate": "5212293655442",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1765250894.399187
+    },
+    "Evaluador de muletillas": {
+      "candidate": "5215586466230",
+      "declined_by": [],
+      "accepted": false,
+      "timestamp": 1765250894.3992279
+    },
+    "Evaluador del tiempo": {
+      "waid": "5219212671618",
+      "nombre": "Daniel",
+      "propuesto_por": "Marcos",
+      "timestamp": 1765251305
+    }
+  },
+  "accepted": {
+    "Topic Master: Director de temas improvisados": {
+      "waid": "5212293655442",
+      "name": "Paco"
+    }
+  },
   "members_cycle": {
     "5219212671618": [],
-    "5212293655442": [],
-    "5212721073312": [],
+    "5212293655442": [
+      "Topic Master: Director de temas improvisados"
+    ],
+    "5212721073312": [
+      "Evaluador del tiempo"
+    ],
     "5215586466230": [],
-    "5215634948177": []
+    "5215634948177": [
+      "Toastmasters de la noche"
+    ]
   },
   "last_summary": null,
-  "canceled": false
+  "canceled": false,
+  "session_theme": {
+    "topic": "Prueba",
+    "waid": "5215634948177",
+    "nombre": "Roger",
+    "round": 1
+  },
+  "prepared_speeches": [
+    {
+      "id": "speech_1765251488_5442",
+      "waid": "5212293655442",
+      "nombre": "Paco",
+      "pathway": "Dynamic Leadership",
+      "nivel": 1,
+      "proyecto": "Rompehielos",
+      "titulo": "¿Cómo ser un ingeniero?",
+      "duracion_min": 5,
+      "duracion_max": 7,
+      "evaluador": "Roger",
+      "evaluador_waid": "5215634948177",
+      "status": "confirmado",
+      "solicitud_timestamp": 1765251488,
+      "round": 1,
+      "evaluador_confirmado_timestamp": 1765251511
+    }
+  ]
 }
