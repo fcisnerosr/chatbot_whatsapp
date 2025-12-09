@@ -2739,7 +2739,7 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["nivel"] = nivel_seleccionado
         set_session(waid, awaiting="speech_step3_proyecto", buffer=buffer)
-        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Rompehielos' o 'Desarrollo de la comunicación no verbal'")
+        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Rompehielos' o 'Desarrollo de la comunicación no verbal'\n\nSi cometes algún error al escribir el nombre, podrás corregirlo más adelante antes de guardar la información.")
         return jsonify({"status": "ok"})
     
     # Paso 3: Nombre del proyecto
@@ -2750,7 +2750,7 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["proyecto"] = body_raw.strip()
         set_session(waid, awaiting="speech_step4_titulo", buffer=buffer)
-        send_text(waid, "📢 Envía el título de tu discurso:\n\nEjemplo: 'Cómo influir con integridad'")
+        send_text(waid, "📢 Envía el título de tu discurso:\n\nEjemplo: 'Cómo influir con integridad'\n\n Nuevamente, si cometes algún error al escribir el título, podrás corregirlo más adelante antes de guardar la información.")
         return jsonify({"status": "ok"})
     
     # Paso 4: Título del discurso
@@ -2761,7 +2761,7 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["titulo"] = body_raw.strip()
         set_session(waid, awaiting="speech_step5_duracion", buffer=buffer)
-        send_text(waid, "⏱️ Envía la duración de tu discurso:\n\nFormato: tiempo_mínimo-tiempo_máximo\nEjemplo: 5-7")
+        send_text(waid, "⏱️ Indica el tiempo mínimo y máximo de tu discurso en una sola oración, usando cualquier formato. El sistema detectará automáticamente ambos valores, así que no te preocupes por el orden o el formato.")
         return jsonify({"status": "ok"})
     
     # Paso 5: Duración

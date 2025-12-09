@@ -1,57 +1,11 @@
 {
   "members": [
     {
-      "name": "Daniel",
-      "waid": "5219212671618",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": []
-    },
-    {
       "name": "Paco",
       "waid": "5212293655442",
       "is_guest": false,
       "level": 6,
-      "roles_done": [
-        "Toastmasters de la noche",
-        "Toastmasters de la noche",
-        "Evaluador gramatical",
-        "Toastmasters de la noche",
-        "Evaluador del tiempo",
-        "Evaluador gramatical",
-        "Topic Master: Director de temas improvisados",
-        "Topic Master: Director de temas improvisados"
-      ]
-    },
-    {
-      "name": "Marcos",
-      "waid": "5212721073312",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Evaluador del tiempo",
-        "Evaluador del tiempo"
-      ]
-    },
-    {
-      "name": "Claudia Vazquez",
-      "waid": "5215586466230",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Toastmasters de la noche",
-        "Evaluador gramatical",
-        "Toastmasters de la noche"
-      ]
-    },
-    {
-      "name": "Roger",
-      "waid": "5215634948177",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Toastmasters de la noche"
-      ]
+      "roles_done": []
     }
   ],
   "roles": [
