@@ -1,3 +1,16 @@
+cuando el socio esté escribiendo los datos para su discurso, se le notifique también que en caso de que cometa algún error, entonces se quede "tranquilo" para que pueda seguir ingresando los datos y que cuando se terminen de ingresar todos, dale la seguridad al usuario de que estos se pueden corregir después.
+Cuando un socio deja un cargo (llamémosle socio 1) puede asignar a otro para darcelo a él (llamémosle socio 2). El socio 1, puede asignarlo a mano o dejarselo al bot. En cualquiera de los dos casos, el socio 2 no puede escojer, cuando le llega la notificación, en ese mismo momento decir no, no puedo o sí, con gusto acepto. Tiene que ir al menú de socios y elegir dejar el cargo. Quisiera que implementara el opción al socio 2 para que pueda dejar el cargo en cuanto le llega la notificación del socio 1 y que en ese momento pueda escoger "no, no puedo" o "sí, sí acepto el cargo"
+Todo es "cargo" no es "pendiente"
+Formato a los textos
+cambiar los pathways a español
+En lo de pedir el tiempo, indica un error si solo se ingresa un numero o no ingresa ningun numero. En dicho caso c debe ingresar nuevamente el enunciado.
+Adicionar TIO u OTTO para los oradores de discurso preparado y de seccion educativa, pero primero preguntar si saben que es TIO u OTTO, en caso de que sì pedirlos.
+Formato mas amigable para lo de "Indica el tiempo mìnimo y maximo..."
+
+Cuando (error q m enviò Marcos)
+
+
+
 2025-12-08 21:40:20,593 INFO roles-bot: ✓ Detectado: Opción 1 - Mi rol
 2025-12-08 21:40:20,593 ERROR roles-bot: Error procesando webhook; payload={'entry': [{'changes': [{'field': 'messages', 'value': {'contacts': [{'profile': {'name': 'Marcos A.'}, 'wa_id': '5212721073312'}], 'messages': [{'context': {'from': '917834811114', 'gs_id': '23f860db-215c-4293-84f9-38ace7e86d78', 'id': '274a91c6-d9b5-43f5-9e3e-02c56c6f9bf9', 'meta_msg_id': 'wamid.HBgNNTIxMjcyMTA3MzMxMhUCABEYEjEyNDQ0N0VENkY4OEE0QjAxQQA='}, 'from': '5212721073312', 'id': 'wamid.HBgNNTIxMjcyMTA3MzMxMhUCABIYFDNBRUFCQThENTMwMDhBQTA0OUZCAA==', 'interactive': {'list_reply': {'description': 'Pendiente o confirmado', 'id': '{"msgid":"list-76af7994f79a","reply":"� Mi rol 1","postbackText":"� Mi rol"}', 'title': '🎯 Mi rol'}, 'type': 'list_reply'}, 'timestamp': '1765251618', 'type': 'interactive'}], 'messaging_product': 'whatsapp', 'metadata': {'display_phone_number': '917834811114', 'phone_number_id': '2664303800308250'}}}], 'id': '437803776764793'}], 'gs_app_id': '818c3740-d17f-11e5-ae2d-0ea1b0410657', 'object': 'whatsapp_business_account'}
 Traceback (most recent call last):
