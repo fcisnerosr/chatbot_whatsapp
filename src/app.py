@@ -2775,7 +2775,7 @@ def _process_message_router(
         min_time, max_time = _extract_duration_numbers(duration_text)
         
         if min_time is None or max_time is None:
-            send_text(waid, "❌ No pude identificar la duración. Por favor envía dos números.\n\nEjemplos válidos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
+            send_text(waid, "❌ Debes indicar dos números: el tiempo mínimo y el tiempo máximo.\n\n⏱️ Intenta nuevamente con cualquiera de estos formatos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
             return jsonify({"status": "ok"})
         
         buffer = s.get("buffer", {})
@@ -3614,12 +3614,12 @@ def _process_message_router(
             # Iniciar flujo de captura de discurso preparado
             set_session(waid, awaiting="speech_step1_pathway", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
             pathways = [
-                "Dynamic Leadership",
-                "Engaging Humor",
-                "Motivational Strategies",
-                "Persuasive Influence",
-                "Presentation Mastery",
-                "Visionary Communication"
+                "Liderazgo Dinámico",
+                "Humor Atractivo",
+                "Estrategias Motivacionales",
+                "Influencia Persuasiva",
+                "Maestría en Presentaciones",
+                "Comunicación Visionaria"
             ]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
             return jsonify({"status": "ok"})
