@@ -6,5 +6,23 @@
     "5212293655442": []
   },
   "last_summary": null,
-  "canceled": false
+  "canceled": false,
+  "prepared_speeches": [
+    {
+      "id": "speech_1765379964_5442",
+      "waid": "5212293655442",
+      "nombre": "Paco",
+      "pathway": "Presentation Mastery",
+      "nivel": 5,
+      "proyecto": "Rompehielos",
+      "titulo": "Cómo ser ingneiro",
+      "duracion_min": 5,
+      "duracion_max": 8,
+      "evaluador": "Diana Pale",
+      "evaluador_waid": null,
+      "status": "confirmado",
+      "solicitud_timestamp": 1765379964,
+      "round": 0
+    }
+  ]
 }
