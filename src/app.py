@@ -822,12 +822,12 @@ def handle_accept(ctx: Ctx, waid: str) -> str:
                         "round": st["round"]
                     })
                     pathways = [
-                        "Dynamic Leadership",
-                        "Engaging Humor",
-                        "Motivational Strategies",
-                        "Persuasive Influence",
-                        "Presentation Mastery",
-                        "Visionary Communication"
+                        "Liderazgo dinámico",
+                        "Cautiva con humor",
+                        "Asesoría eficaz",
+                        "Influencia persuasiva",
+                        "Dominio de las presentaciones",
+                        "Comunicación visionaria"
                     ]
                     send_list_menu(original_waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
                 else:  # section
@@ -2861,12 +2861,12 @@ def _process_message_router(
         
         # Lista de pathways válidos
         valid_pathways = [
-            "Dynamic Leadership",
-            "Engaging Humor",
-            "Motivational Strategies",
-            "Persuasive Influence",
-            "Presentation Mastery",
-            "Visionary Communication"
+            "Liderazgo dinámico",
+            "Cautiva con humor",
+            "Asesoría eficaz",
+            "Influencia persuasiva",
+            "Dominio de las presentaciones",
+            "Comunicación visionaria"
         ]
         
         pathway_text = body_raw.strip()
@@ -3136,7 +3136,8 @@ def _process_message_router(
                 ("✏️ Corregir datos", "Corregir"),
                 ("❌ Cancelar registro", "Cancelar")
             ]
-            send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+            # send_list_menu(waid, "¿Qué deseas hacer?", confirm_options, "Seleccionar acción")
+            send_list_menu(waid, "Confirma que tus datos son correctos.", confirm_options, "Seleccionar acción")
             return None
         
         # Si no confirmó ni rechazó, pedir respuesta válida
@@ -3288,7 +3289,7 @@ def _process_message_router(
         # Redirigir al paso correspondiente según el campo con estado de corrección
         if field_to_correct == "pathway":
             send_text(waid, "✏️ Corrigiendo Pathway...")
-            pathways = ["Dynamic Leadership", "Engaging Humor", "Motivational Strategies", "Persuasive Influence", "Presentation Mastery", "Visionary Communication"]
+            pathways = ["Liderazgo dinámico", "Cautiva con humor", "Asesoría eficaz", "Influencia persuasiva", "Dominio de las presentaciones", "Comunicación visionaria"]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
             set_session(waid, awaiting="speech_correct_pathway", buffer=buffer)
         elif field_to_correct == "nivel":
@@ -3339,7 +3340,7 @@ def _process_message_router(
     # Handlers de corrección individuales que regresan al resumen
     if awaiting == "speech_correct_pathway":
         buffer = s.get("buffer", {})
-        pathways = ["Dynamic Leadership", "Engaging Humor", "Motivational Strategies", "Persuasive Influence", "Presentation Mastery", "Visionary Communication"]
+        pathways = ["Liderazgo dinámico", "Cautiva con humor", "Asesoría eficaz", "Influencia persuasiva", "Dominio de las presentaciones", "Comunicación visionaria"]
         if body_raw.strip() in pathways or any(matches_option(body_raw_clean, (p, "")) for p in pathways):
             buffer["pathway"] = body_raw.strip()
             set_session(waid, awaiting="speech_confirm", buffer=buffer)
@@ -3871,12 +3872,12 @@ def _process_message_router(
             # Iniciar flujo de captura de discurso preparado
             set_session(waid, awaiting="speech_step1_pathway", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
             pathways = [
-                "Dynamic Leadership",
-                "Engaging Humor",
-                "Motivational Strategies",
-                "Persuasive Influence",
-                "Presentation Mastery",
-                "Visionary Communication"
+                "Liderazgo dinámico",
+                "Cautiva con humor",
+                "Asesoría eficaz",
+                "Influencia persuasiva",
+                "Dominio de las presentaciones",
+                "Comunicación visionaria"
             ]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
             return jsonify({"status": "ok"})

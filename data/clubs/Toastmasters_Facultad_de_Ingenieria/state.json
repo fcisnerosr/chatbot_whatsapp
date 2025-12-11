@@ -3,11 +3,26 @@
   "pending": {},
   "accepted": {},
   "members_cycle": {
-    "5212293655442": [],
-    "5215586466230": []
+    "5212293655442": []
   },
   "last_summary": null,
   "canceled": false,
-  "prepared_speeches": [],
-  "educational_sections": []
+  "prepared_speeches": [
+    {
+      "id": "speech_1765486498_5442",
+      "waid": "5212293655442",
+      "nombre": "Paco",
+      "pathway": "Influencia persuasiva",
+      "nivel": 1,
+      "proyecto": "Rompehielos",
+      "titulo": "Como ser ingeniero?",
+      "duracion_min": 6,
+      "duracion_max": 9,
+      "evaluador": "Diana Pale",
+      "evaluador_waid": null,
+      "status": "confirmado",
+      "solicitud_timestamp": 1765486498,
+      "round": 0
+    }
+  ]
 }
