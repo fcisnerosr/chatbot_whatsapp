@@ -2031,7 +2031,10 @@ def _process_message_router(
                     awaiting="word_step1_palabra",
                     buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
                 )
-                send_text(waid, "📖 Envía la palabra del día:\n\n💡 *Tip:* No te preocupes si cometes algún error, después tendrás la oportunidad de revisar y corregir toda la información antes de guardarla.")
+                send_text(waid, 
+                    "📖 *Envía la palabra del día:*\n\n"
+                    "_💡 Tip: No te preocupes si cometes algún error, después tendrás la oportunidad de revisar y corregir toda la información antes de guardarla._"
+                )
             elif "toastmaster" in role_norm or "toastmasters de la noche" in role_norm:
                 set_session(
                     waid,
@@ -2055,7 +2058,7 @@ def _process_message_router(
             buffer = s.get("buffer", {})
             club_ctx = _CTX.get(buffer.get("club"))
             if club_ctx:
-                send_text(waid, "❗Opción inválida. Usa los botones: ✅ Aceptar / ❌ Rechazar.")
+                send_text(waid, "_❗ Opción inválida. Por favor, usa los botones:_ *✅ Aceptar* / *❌ Rechazar*")
                 title, opts, _ = invite_menu_parts(club_ctx, buffer["role"], buffer["round"])
                 send_menu_with_quick_replies(waid, title, [opt[0] for opt in opts])
             return jsonify({"status": "ok"})
@@ -2093,7 +2096,10 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["palabra"] = body_raw.strip()
         set_session(waid, awaiting="word_step2_significado", buffer=buffer)
-        send_text(waid, "✍️ Envía el significado de la palabra:\n\n💡 *Recuerda:* Podrás revisar y corregir cualquier información antes de guardarla.")
+        send_text(waid, 
+            "✍️ *Envía el significado de la palabra:*\n\n"
+            "_💡 Recuerda: Podrás revisar y corregir cualquier información antes de guardarla._"
+        )
         return None
 
     if awaiting == "word_step2_significado":
@@ -2103,7 +2109,10 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["significado"] = body_raw.strip()
         set_session(waid, awaiting="word_step3_ejemplo", buffer=buffer)
-        send_text(waid, "💡 Envía un ejemplo de uso de la palabra:\n\n✅ *Último paso!* En el siguiente mensaje podrás revisar toda la información y corregir lo que necesites.")
+        send_text(waid, 
+            "💡 *Envía un ejemplo de uso de la palabra:*\n\n"
+            "_✅ ¡Último paso! En el siguiente mensaje podrás revisar toda la información y corregir lo que necesites._"
+        )
         return None
 
     if awaiting == "word_step3_ejemplo":
@@ -2393,7 +2402,7 @@ def _process_message_router(
             set_session(waid, awaiting=None, buffer=None)
             return None
         
-        send_text(waid, "❌ Opción inválida. Usa los botones: ✅ Sí, puedo evaluar / ❌ No puedo")
+        send_text(waid, "_❌ Opción inválida. Por favor, usa los botones:_ *✅ Sí, puedo evaluar* / *❌ No puedo*")
         send_menu_with_quick_replies(waid, "Responde:", ["✅ Sí, puedo evaluar", "❌ No puedo"])
         return None
     
@@ -2444,7 +2453,7 @@ def _process_message_router(
             return None
         
         if wants_cancel:
-            send_text(waid, "✅ Mantuviste tu cargo. No se realizó ningún cambio.")
+            send_text(waid, "_✅ Mantuviste tu cargo. No se realizó ningún cambio._")
             set_session(waid, awaiting=None, buffer=None, mode="member")
             send_member_menu(club_ctx, waid)
             return None
@@ -2616,7 +2625,7 @@ def _process_message_router(
                 break
         
         if not selected_waid:
-            send_text(waid, "❌ No se reconoció al socio. Por favor selecciona de la lista.")
+            send_text(waid, "_❌ No se reconoció al socio. Por favor, selecciona de la lista._")
             candidate_options = [(nombre, "") for nombre in candidates_map.keys()]
             send_list_menu(waid, "Selecciona un reemplazo:", candidate_options, "Elegir reemplazo")
             return None
@@ -2725,7 +2734,7 @@ def _process_message_router(
             nivel_seleccionado = 5
         
         if not nivel_seleccionado:
-            send_text(waid, "❌ Nivel inválido. Por favor selecciona un nivel del 1 al 5.")
+            send_text(waid, "_❌ Nivel inválido. Por favor, selecciona un nivel del *1 al 5*._")
             nivel_options = [
                 ("1️⃣ Nivel 1", "Nivel 1"),
                 ("2️⃣ Nivel 2", "Nivel 2"),
@@ -2739,7 +2748,21 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["nivel"] = nivel_seleccionado
         set_session(waid, awaiting="speech_step3_proyecto", buffer=buffer)
-        send_text(waid, "📝 Envía el nombre de tu proyecto:\n\nEjemplo: 'Rompehielos' o 'Desarrollo de la comunicación no verbal'\n\nSi cometes algún error al escribir el nombre, podrás corregirlo más adelante antes de guardar la información.")
+        send_text(waid, 
+            "📝 *Envía el nombre de tu proyecto:*\n\n"
+            "_Ejemplos:_\n"
+            "• `Rompehielos`\n"
+            "• `Desarrollo de la comunicación no verbal`\n\n"
+            "_Nota: Si cometes algún error al escribir el nombre, podrás corregirlo más adelante antes de guardar la información._"
+        )
+        send_text(waid, "📝 *Envía el nombre de tu proyecto:*\n\n"
+    "_Ejemplos:_\n"
+    "• `Rompehielos`\n"
+    "• `Desarrollo de la comunicación no verbal`\n\n"
+    "_Nota_: si cometes algún error al escribir el nombre, "
+    "podrás corregirlo más adelante antes de guardar la información."
+)
+
         return jsonify({"status": "ok"})
     
     # Paso 3: Nombre del proyecto
@@ -2750,7 +2773,11 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["proyecto"] = body_raw.strip()
         set_session(waid, awaiting="speech_step4_titulo", buffer=buffer)
-        send_text(waid, "📢 Envía el título de tu discurso:\n\nEjemplo: 'Cómo influir con integridad'\n\n Nuevamente, si cometes algún error al escribir el título, podrás corregirlo más adelante antes de guardar la información.")
+        send_text(waid, 
+            "📢 *Envía el título de tu discurso:*\n\n"
+            "_Ejemplo:_ `Cómo influir con integridad`\n\n"
+            "_Nota: Si cometes algún error al escribir el título, podrás corregirlo más adelante antes de guardar la información._"
+        )
         return jsonify({"status": "ok"})
     
     # Paso 4: Título del discurso
@@ -2761,7 +2788,15 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["titulo"] = body_raw.strip()
         set_session(waid, awaiting="speech_step5_duracion", buffer=buffer)
-        send_text(waid, "⏱️ Indica el tiempo mínimo y máximo de tu discurso en una sola oración, usando cualquier formato. El sistema detectará automáticamente ambos valores, así que no te preocupes por el orden o el formato.")
+        send_text(waid, 
+            "⏱️ *Indica el tiempo mínimo y máximo de tu discurso:*\n\n"
+            "_Puedes usar cualquier formato natural. El sistema detectará automáticamente ambos valores._\n\n"
+            "_Ejemplos válidos:_\n"
+            "• `5-7`\n"
+            "• `de 5 a 7 minutos`\n"
+            "• `entre 5 y 7`\n"
+            "• `mínimo 5 máximo 7`"
+        )
         return jsonify({"status": "ok"})
     
     # Paso 5: Duración
@@ -2775,7 +2810,14 @@ def _process_message_router(
         min_time, max_time = _extract_duration_numbers(duration_text)
         
         if min_time is None or max_time is None:
-            send_text(waid, "❌ Debes indicar dos números: el tiempo mínimo y el tiempo máximo.\n\n⏱️ Intenta nuevamente con cualquiera de estos formatos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
+            send_text(waid, 
+                "❌ *Debes indicar dos números:* el tiempo mínimo y el tiempo máximo.\n\n"
+                "_⏱️ Intenta nuevamente con cualquiera de estos formatos:_\n"
+                "• `5-7`\n"
+                "• `de 5 a 7 minutos`\n"
+                "• `entre 5 y 7`\n"
+                "• `mínimo 5 máximo 7`"
+            )
             return jsonify({"status": "ok"})
         
         buffer = s.get("buffer", {})
@@ -3060,7 +3102,7 @@ def _process_message_router(
         # Redirigir al paso correspondiente según el campo con estado de corrección
         if field_to_correct == "pathway":
             send_text(waid, "✏️ Corrigiendo Pathway...")
-            pathways = ["Liderazgo dinámico", "Persuasión efectiva", "Presentación estratégica", "Presentaciones motivacionales", "Liderazgo visionario"]
+            pathways = ["Dynamic Leadership", "Engaging Humor", "Motivational Strategies", "Persuasive Influence", "Presentation Mastery", "Visionary Communication"]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
             set_session(waid, awaiting="speech_correct_pathway", buffer=buffer)
         elif field_to_correct == "nivel":
@@ -3075,13 +3117,23 @@ def _process_message_router(
             send_list_menu(waid, "📊 Selecciona el nivel de tu proyecto:", nivel_options, "Elegir nivel")
             set_session(waid, awaiting="speech_correct_nivel", buffer=buffer)
         elif field_to_correct == "proyecto":
-            send_text(waid, "✏️ Corrigiendo Proyecto...\n\n📝 Envía el nuevo nombre de tu proyecto:")
+            send_text(waid, 
+                "✏️ *Corrigiendo Proyecto...*\n\n"
+                "_📝 Envía el nuevo nombre de tu proyecto:_"
+            )
             set_session(waid, awaiting="speech_correct_proyecto", buffer=buffer)
         elif field_to_correct == "titulo":
-            send_text(waid, "✏️ Corrigiendo Título...\n\n📢 Envía el nuevo título de tu discurso:")
+            send_text(waid, 
+                "✏️ *Corrigiendo Título...*\n\n"
+                "_📢 Envía el nuevo título de tu discurso:_"
+            )
             set_session(waid, awaiting="speech_correct_titulo", buffer=buffer)
         elif field_to_correct == "duracion":
-            send_text(waid, "✏️ Corrigiendo Duración...\n\n⏱️ Envía la nueva duración en formato: MIN-MAX\n\nEjemplo: 5-7")
+            send_text(waid, 
+                "✏️ *Corrigiendo Duración...*\n\n"
+                "_⏱️ Envía la nueva duración en cualquier formato natural._\n\n"
+                "_Ejemplo:_ `5-7`"
+            )
             set_session(waid, awaiting="speech_correct_duracion", buffer=buffer)
         elif field_to_correct == "evaluador":
             send_text(waid, "✏️ Corrigiendo Evaluador...")
@@ -3101,7 +3153,7 @@ def _process_message_router(
     # Handlers de corrección individuales que regresan al resumen
     if awaiting == "speech_correct_pathway":
         buffer = s.get("buffer", {})
-        pathways = ["Liderazgo dinámico", "Persuasión efectiva", "Presentación estratégica", "Presentaciones motivacionales", "Liderazgo visionario"]
+        pathways = ["Dynamic Leadership", "Engaging Humor", "Motivational Strategies", "Persuasive Influence", "Presentation Mastery", "Visionary Communication"]
         if body_raw.strip() in pathways or any(matches_option(body_raw_clean, (p, "")) for p in pathways):
             buffer["pathway"] = body_raw.strip()
             set_session(waid, awaiting="speech_confirm", buffer=buffer)
@@ -3229,7 +3281,14 @@ def _process_message_router(
         min_time, max_time = _extract_duration_numbers(duration_text)
         
         if min_time is None or max_time is None:
-            send_text(waid, "❌ No pude identificar la duración. Por favor envía dos números.\n\nEjemplos válidos:\n• 5-7\n• de 5 a 7 minutos\n• entre 5 y 7\n• mínimo 5 máximo 7")
+            send_text(waid, 
+                "❌ *No pude identificar la duración.* Por favor, envía dos números.\n\n"
+                "_Ejemplos válidos:_\n"
+                "• `5-7`\n"
+                "• `de 5 a 7 minutos`\n"
+                "• `entre 5 y 7`\n"
+                "• `mínimo 5 máximo 7`"
+            )
             return None
         
         buffer["duracion_min"] = min_time
@@ -3312,7 +3371,10 @@ def _process_message_router(
         buffer = s.get("buffer", {})
         buffer["serie"] = body_raw.strip()
         set_session(waid, awaiting="section_step2_nombre", buffer=buffer)
-        send_text(waid, "📝 Envía el nombre de la sección educativa que presentarás:\n\nEjemplo: 'Cómo dar retroalimentación efectiva'")
+        send_text(waid, 
+            "📝 *Envía el nombre de la sección educativa que presentarás:*\n\n"
+            "_Ejemplo:_ `Cómo dar retroalimentación efectiva`"
+        )
         return None
     
     # Paso 2: Nombre de la sección
@@ -3614,12 +3676,12 @@ def _process_message_router(
             # Iniciar flujo de captura de discurso preparado
             set_session(waid, awaiting="speech_step1_pathway", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
             pathways = [
-                "Liderazgo Dinámico",
-                "Humor Atractivo",
-                "Estrategias Motivacionales",
-                "Influencia Persuasiva",
-                "Maestría en Presentaciones",
-                "Comunicación Visionaria"
+                "Dynamic Leadership",
+                "Engaging Humor",
+                "Motivational Strategies",
+                "Persuasive Influence",
+                "Presentation Mastery",
+                "Visionary Communication"
             ]
             send_list_menu(waid, "📚 Selecciona tu Pathway:", pathways, "Seleccionar pathway")
             return jsonify({"status": "ok"})
