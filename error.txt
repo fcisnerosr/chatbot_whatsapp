@@ -1,10 +1,6 @@
 Cuando un socio deja un cargo (llamémosle socio 1) puede asignar a otro para darcelo a él (llamémosle socio 2). El socio 1, puede asignarlo a mano o dejarselo al bot. En cualquiera de los dos casos, el socio 2 no puede escojer, cuando le llega la notificación, en ese mismo momento decir no, no puedo o sí, con gusto acepto. Tiene que ir al menú de socios y elegir dejar el cargo. Quisiera que implementara el opción al socio 2 para que pueda dejar el cargo en cuanto le llega la notificación del socio 1 y que en ese momento pueda escoger "no, no puedo" o "sí, sí acepto el cargo"
 Adicionar TIO u OTTO para los oradores de discurso preparado y de seccion educativa, pero primero preguntar si saben que es TIO u OTTO, en caso de que sì pedirlos.
 confirmar el cargo un día antes
-Cambiar todo a cargo, nada de otra palabra para referirse al cargo
-Quitar lo del menú de socios y sea más directo
-cuando un socio haya configurado un discurso que salga un boton para poder cancelarlo
-cuando un socio haya configurado una educativa que salga un boton para poder cancelarlo
 
 En relación al error que le envió a Marcos:
 2025-12-08 21:40:20,593 INFO roles-bot: ✓ Detectado: Opción 1 - Mi rol
