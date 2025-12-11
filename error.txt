@@ -6,6 +6,9 @@ cambiar los pathways a español
 En lo de pedir el tiempo, indica un error si solo se ingresa un numero o no ingresa ningun numero. En dicho caso c debe ingresar nuevamente el enunciado.
 Adicionar TIO u OTTO para los oradores de discurso preparado y de seccion educativa, pero primero preguntar si saben que es TIO u OTTO, en caso de que sì pedirlos.
 Formato mas amigable para lo de "Indica el tiempo mìnimo y maximo..."
+confirmar el cargo un día antes
+Cambiar todo a cargo, nada de otra palabra para referirse al cargo
+Quitar lo del menú de socios y sea más directo
 
 En relación al error que le envió a Marcos:
 2025-12-08 21:40:20,593 INFO roles-bot: ✓ Detectado: Opción 1 - Mi rol
