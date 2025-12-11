@@ -3,8 +3,11 @@
   "pending": {},
   "accepted": {},
   "members_cycle": {
-    "5212293655442": []
+    "5212293655442": [],
+    "5215586466230": []
   },
   "last_summary": null,
-  "canceled": false
+  "canceled": false,
+  "prepared_speeches": [],
+  "educational_sections": []
 }

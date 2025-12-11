@@ -398,12 +398,15 @@ def _set_norm(labels: List[str]) -> Set[str]:
 
 ROOT_MEMBER_SET = _set_norm(["👤 Menú de socio", "Menú de socio"])
 ROOT_ADMIN_SET  = _set_norm(["🛠️ Menú de admin", "Menú de admin"])
-ROOT_STATUS_SET = _set_norm(["📌 Mi estado de rol", "Mi estado de rol"])
+ROOT_STATUS_SET = _set_norm(["📌 Mi estado de cargo", "Mi estado de cargo", "Mi estado"])
 BACK_SET        = _set_norm(["🔙 Volver", "Volver"])
-MEM_ROLE_SET    = _set_norm(["🎯 Mi rol", "Mi rol"])
+MEM_ROLE_SET    = _set_norm(["🎯 Mi cargo", "Mi cargo"])
 MEM_STATUS_SET  = _set_norm(["📊 Estado de la ronda", "Estado de la ronda"])
 MEM_SPEECH_SET  = _set_norm(["🎤 Discurso preparado", "🎤 Dar un discurso preparado", "Quiero dar un discurso preparado", "Discurso preparado"])
-MEM_EDUCATION_SET = _set_norm(["📚 Quiero dar una Sección Educativa", "Quiero dar una Sección Educativa", "Sección Educativa"])
+MEM_EDUCATION_SET = _set_norm(["📚 Quiero dar una Sección Educativa", "Quiero dar una Sección Educativa", "Sección Educativa", "Dar una educativa"])
+MEM_CANCEL_SPEECH_SET = _set_norm(["❌ Cancelar mi discurso", "Cancelar mi discurso", "Cancelar discurso"])
+MEM_CANCEL_SECTION_SET = _set_norm(["❌ Cancelar mi educativa", "Cancelar mi educativa", "Cancelar educativa"])
+MEM_LEAVE_ROLE_SET = _set_norm(["❌ Dejar mi cargo", "Dejar mi cargo", "Renunciar al rol asignado"])
 
 def _is_choice(body_raw: str, target_set: Set[str]) -> bool:
     raw = (body_raw or "").strip()
@@ -701,7 +704,7 @@ def admin_remove_member(ctx: Ctx, waid_or_name: str) -> str:
     in_pending = any(d["candidate"] == target.waid and not d.get("accepted") for d in st.get("pending", {}).values())
     in_accepted = any(v["waid"] == target.waid for v in st.get("accepted", {}).values())
     if in_pending or in_accepted:
-        return "No se puede eliminar ahora: tiene un rol pendiente o aceptado en esta ronda."
+        return "No se puede eliminar ahora: tiene un cargo pendiente o aceptado en esta ronda."
 
     ctx.club.members = [m for m in ctx.club.members if m.waid != target.waid]
     ctx.club.save_to_json(str(ctx.club_file))
@@ -835,8 +838,8 @@ def handle_accept(ctx: Ctx, waid: str) -> str:
                     })
                     series = [
                         ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
-                        ("🎖️ Serie del club exitoso", "Gestión de clubes"),
-                        ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
+                        ("🎖️ Club exitoso", "Gestión de clubes"),
+                        ("💼 Liderazgo", "Habilidades de liderazgo"),
                         ("💡 Tema libre", "Cualquier tema educativo")
                     ]
                     send_list_menu(original_waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
@@ -917,8 +920,8 @@ def handle_reject(ctx: Ctx, waid: str) -> str:
                     send_text(
                         replacement.waid,
                         f"📧 {pretty_name(ctx, original_waid)} necesita ceder el cargo de *{role}* porque desea dar un {action_text}.\n\n"
-                        f"¿Puedes tomar el rol de *{role}* para la reunión #{st['round']}?\n\n"
-                        f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                        f"¿Puedes tomar el cargo de *{role}* para la reunión #{st['round']}?\n\n"
+                        f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
                     )
                     
                     # Notificar al solicitante original
@@ -1008,7 +1011,7 @@ def check_and_announce_if_complete(ctx: Ctx) -> None:
         _schedule_monday_confirmations(ctx, st["round"])
         st["confirmations_scheduled"] = True
         ctx.state_store.save(st)
-        broadcast_text(ctx.admins, f"[{ctx.club_id}] ✅ Todos los roles aceptados. Confirmaciones programadas para el lunes 3 PM.")
+        broadcast_text(ctx.admins, f"[{ctx.club_id}] ✅ Todos los cargos aceptados. Confirmaciones programadas para el lunes 3 PM.")
     
     ctx.state_store.save(st)
     broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] {summary}")
@@ -1022,7 +1025,7 @@ def who_am_i(ctx: Ctx, waid: str) -> str:
             return _build_menu_text(title, options)
     for role, acc in st["accepted"].items():
         if acc["waid"] == waid:
-            return f"✅ Confirmaste el rol {role} en la ronda #{st['round']} ({ctx.club_id})."
+            return f"✅ Confirmaste el cargo {role} en la ronda #{st['round']} ({ctx.club_id})."
     return "➖ No tienes roles asignados ni pendientes."
 
 
@@ -1032,11 +1035,11 @@ def who_am_i_summary(ctx: Ctx, waid: str) -> str:
         if info["candidate"] == waid and not info["accepted"]:
             return (
                 f"[{ctx.club_id}] 🔔 Tienes una invitación pendiente: {role} en la ronda #{st['round']} ({ctx.club_id}).\n"
-                f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
             )
     for role, acc in st["accepted"].items():
         if acc["waid"] == waid:
-            return f"[{ctx.club_id}] ✅ Confirmaste el rol {role} en la ronda #{st['round']} ({ctx.club_id})."
+            return f"[{ctx.club_id}] ✅ Confirmaste el cargo {role} en la ronda #{st['round']} ({ctx.club_id})."
     return f"[{ctx.club_id}] ➖ No tienes roles asignados ni pendientes."
 
 
@@ -1131,14 +1134,41 @@ def _root_menu_parts(waid: str) -> Tuple[str, List[Tuple[str, str]], str]:
     mclubs = member_clubs(waid)
     aclubs = admin_clubs(waid)
     options: List[Tuple[str, str]] = []
-    header = "Asistente de asignación de roles: Menú principal. Elija una opción"
+    header = "Asistente de asignación de cargos: Menú principal. Elija una opción"
+    
+    # Para socios: mostrar opciones directamente si tiene un solo club
     if mclubs:
-        desc = f"Club único: {mclubs[0]}" if len(mclubs) == 1 else "Elegir club"
-        options.append(("👤 Menú de socio", desc))
+        if len(mclubs) == 1:
+            # Un solo club: mostrar opciones de socio directamente
+            cid = mclubs[0]
+            ctx = _CTX.get(cid)
+            if ctx:
+                st = ctx.state_store.load()
+                # Verificar si tiene cargo confirmado
+                has_confirmed_role = any(info.get("waid") == waid for info in st.get("accepted", {}).values())
+                # Verificar si tiene discurso registrado
+                has_speech = any(s.get("waid") == waid for s in st.get("prepared_speeches", []))
+                # Verificar si tiene educativa registrada
+                has_section = any(sec.get("waid") == waid for sec in st.get("educational_sections", []))
+                
+                options.append(("🎯 Mi cargo", "Pendiente o confirmado"))
+                options.append(("📊 Estado de la ronda", "Resumen y pendientes"))
+                options.append(("🎤 Discurso preparado", "Registrar discurso de pathway"))
+                if has_speech:
+                    options.append(("❌ Cancelar mi discurso", "Cancelar discurso registrado"))
+                options.append(("📚 Dar una educativa", "Registrar sección educativa"))
+                if has_section:
+                    options.append(("❌ Cancelar mi educativa", "Cancelar sección registrada"))
+                if has_confirmed_role:
+                    options.append(("❌ Dejar mi cargo", "Renunciar al cargo asignado"))
+        else:
+            # Múltiples clubes: mostrar selector
+            options.append(("👤 Menú de socio", "Elegir club"))
+    
     if aclubs:
         desc = f"Club único: {aclubs[0]}" if len(aclubs) == 1 else "Elegir club"
         options.append(("🛠️ Menú de admin", desc))
-    options.append(("📌 Mi estado de rol", "Invitación o confirmación"))
+    
     return header, options, "Menú principal"
 
 
@@ -1153,15 +1183,15 @@ def send_root_menu(waid: str) -> dict:
 
 
 def _member_menu_parts(ctx: Ctx, waid: str) -> Tuple[str, List[Tuple[str, str]], str]:
-    title = f"Asistente de asignación de roles: Menú de socio [{ctx.club_id}]. Elija una opción"
+    title = f"Asistente de asignación de cargos: Menú de socio [{ctx.club_id}]. Elija una opción"
     options: List[Tuple[str, str]] = [
-        ("🎯 Mi rol", "Pendiente o confirmado"),
+        ("🎯 Mi cargo", "Pendiente o confirmado"),
         ("📊 Estado de la ronda", "Resumen y pendientes"),
         ("🎤 Discurso preparado", "Registrar discurso de pathway"),
         ("📚 Dar una educativa", "Registrar sección educativa"),
     ]
     
-    # Verificar si el socio tiene algún rol confirmado
+    # Verificar si el socio tiene algún cargo confirmado
     st = ctx.state_store.load()
     has_confirmed_role = False
     for role, info in st.get("accepted", {}).items():
@@ -1169,9 +1199,9 @@ def _member_menu_parts(ctx: Ctx, waid: str) -> Tuple[str, List[Tuple[str, str]],
             has_confirmed_role = True
             break
     
-    # Si tiene rol confirmado, agregar opción para dejarlo
+    # Si tiene cargo confirmado, agregar opción para dejarlo
     if has_confirmed_role:
-        options.append(("❌ Dejar mi cargo", "Renunciar al rol asignado"))
+        options.append(("❌ Dejar mi cargo", "Renunciar al cargo asignado"))
     
     options.append(("🔙 Volver", "Regresar al menú principal"))
     return title, options, "Menú de socio"
@@ -1212,9 +1242,9 @@ def render_admin_club_picker(aclubs: List[str]) -> str:
 
 
 def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
-    title = f"Asistente de asignación de roles: Menú admin [{ctx.club_id}]. Elija una opción"
+    title = f"Asistente de asignación de cargos: Menú admin [{ctx.club_id}]. Elija una opción"
     options: List[Tuple[str, str]] = [
-        ("▶️ Iniciar ronda", "Proponer candidatos por rol"),
+        ("▶️ Iniciar ronda", "Proponer candidatos por cargo"),
         ("📊 Ver estado", "Resumen actual y pendientes"),
         ("🛑 Cancelar ronda", "Borrar pendientes y aceptados"),
         ("♻️ Resetear estado", "Reiniciar club a cero"),
@@ -1267,7 +1297,7 @@ def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tup
         "Elija una opción para responder."
     )
     options: List[Tuple[str, str]] = [
-        ("✅ Aceptar", "Confirmar rol"),
+        ("✅ Aceptar", "Confirmar cargo"),
         ("❌ Rechazar", "Ceder a otra persona"),
     ]
     return title, options, "Responder invitación"
@@ -1455,7 +1485,7 @@ def _send_monday_confirmations(ctx: Ctx, round_no: int) -> None:
         msg = (
             f"⚠️ *Confirmación de asistencia*\n\n"
             f"Hola {info.get('name', '')}!\n\n"
-            f"Tienes asignado el rol de *{role}* para la sesión de mañana martes.\n\n"
+            f"Tienes asignado el cargo de *{role}* para la sesión de mañana martes.\n\n"
             f"Por favor confirma tu asistencia respondiendo:\n"
             f"*CONFIRMO* o *SI*\n\n"
             f"⏰ Plazo: Hoy antes de las 7:00 PM\n\n"
@@ -1527,9 +1557,9 @@ def _process_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
             st["confirmations"][new_cand] = {"role": role, "confirmed": True, "timestamp": time.time()}
             
             send_text(waid, f"❌ No confirmaste a tiempo. El rol *{role}* fue reasignado.")
-            send_text(new_cand, f"🔄 Se te asignó el rol *{role}* para mañana porque el socio anterior no confirmó. Por favor confirma: CONFIRMO")
+            send_text(new_cand, f"🔄 Se te asignó el cargo *{role}* para mañana porque el socio anterior no confirmó. Por favor confirma: CONFIRMO")
             
-            broadcast_text(ctx.admins, f"[{ctx.club_id}] Rol *{role}* reasignado de {pretty_name(ctx, waid)} a {pretty_name(ctx, new_cand)}")
+            broadcast_text(ctx.admins, f"[{ctx.club_id}] Cargo *{role}* reasignado de {pretty_name(ctx, waid)} a {pretty_name(ctx, new_cand)}")
         else:
             # No hay reemplazo, mantener al original
             log.warning(f"No hay reemplazo para {role}, manteniendo a {waid}")
@@ -2010,7 +2040,7 @@ def _process_message_router(
 
     # --------- Flujos de invitación (persisten sobre cualquier menú) -------------------
     if awaiting == "invite_decision":
-        accept_option = ("✅ Aceptar", "Confirmar rol")
+        accept_option = ("✅ Aceptar", "Confirmar cargo")
         reject_option = ("❌ Rechazar", "Ceder a otra persona")
 
         wants_accept = matches_option(body_raw_clean, accept_option) or body_norm in ("1", "acepto", "aceptar", "accept", "si", "sí", "ok")
@@ -2306,8 +2336,8 @@ def _process_message_router(
                 send_text(
                     replacement_waid,
                     f"📧 {pretty_name(club_ctx, waid)} necesita ceder el cargo de *{toastmaster_role}* porque desea dar un {action_text}.\n\n"
-                    f"¿Puedes tomar el rol de *{toastmaster_role}* para la reunión #{st['round']}?\n\n"
-                    f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                    f"¿Puedes tomar el cargo de *{toastmaster_role}* para la reunión #{st['round']}?\n\n"
+                    f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
                 )
                 
                 # Confirmar al socio original que se envió la solicitud
@@ -2466,6 +2496,170 @@ def _process_message_router(
         send_list_menu(waid, "Confirma tu decisión:", confirm_options, "Responder")
         return None
     
+    # Confirmación para cancelar un discurso preparado
+    if awaiting == "confirm_cancel_speech":
+        buffer = s.get("buffer", {})
+        club_id = buffer.get("club")
+        speech_id = buffer.get("speech_id")
+        
+        if not club_id or not speech_id:
+            send_text(waid, "❌ Error: No se encontró la información del discurso.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        club_ctx = _CTX.get(club_id)
+        if not club_ctx:
+            send_text(waid, "❌ Error: Club no encontrado.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        # Normalizar para comparación
+        body_lower = body_raw.strip().lower()
+        
+        wants_confirm = (
+            matches_option(body_raw_clean, ("✅ Sí, cancelar discurso", "Confirmar cancelación")) or 
+            "confirmar" in body_lower or 
+            ("sí" in body_lower and "cancelar" in body_lower) or
+            body_norm in ("1", "si")
+        )
+        wants_keep = (
+            matches_option(body_raw_clean, ("❌ No, mantener discurso", "Mantener")) or 
+            "mantener" in body_lower or
+            "no" in body_lower or
+            body_norm in ("2", "no")
+        )
+        
+        if wants_confirm:
+            st = club_ctx.state_store.load()
+            
+            # Buscar el discurso
+            speech = next((sp for sp in st.get("prepared_speeches", []) if sp.get("id") == speech_id), None)
+            
+            if not speech:
+                send_text(waid, "❌ Error: No se encontró el discurso.")
+                set_session(waid, awaiting=None, buffer=None, mode="member")
+                send_member_menu(club_ctx, waid)
+                return None
+            
+            # Obtener información del discurso antes de eliminarlo
+            speech_title = speech.get("titulo", "Sin título")
+            evaluador_waid = speech.get("evaluador_waid")
+            
+            # Eliminar el discurso
+            st["prepared_speeches"] = [
+                sp for sp in st.get("prepared_speeches", [])
+                if sp.get("id") != speech_id
+            ]
+            club_ctx.state_store.save(st)
+            
+            # Notificar al evaluador si existe
+            if evaluador_waid:
+                speaker_name = pretty_name(club_ctx, waid)
+                send_text(
+                    evaluador_waid,
+                    f"⚠️ *Discurso cancelado*\n\n"
+                    f"{speaker_name} ha cancelado su discurso:\n"
+                    f"📄 *{speech_title}*\n\n"
+                    f"Ya no necesitarás evaluarlo."
+                )
+            
+            send_text(waid, f"✅ Has cancelado tu discurso: *{speech_title}*")
+            set_session(waid, awaiting=None, buffer=None, mode="member")
+            send_member_menu(club_ctx, waid)
+            return None
+        
+        if wants_keep:
+            send_text(waid, "_✅ Mantuviste tu discurso. No se realizó ningún cambio._")
+            set_session(waid, awaiting=None, buffer=None, mode="member")
+            send_member_menu(club_ctx, waid)
+            return None
+        
+        send_text(waid, "❌ Opción inválida. Usa los botones para responder.")
+        cancel_options = [
+            ("✅ Sí, cancelar discurso", "Confirmar cancelación"),
+            ("❌ No, mantener discurso", "Mantener")
+        ]
+        send_list_menu(waid, "Confirma tu decisión:", cancel_options, "Responder")
+        return None
+    
+    # Confirmación para cancelar una educativa
+    if awaiting == "confirm_cancel_section":
+        buffer = s.get("buffer", {})
+        club_id = buffer.get("club")
+        section_waid = buffer.get("section_waid")
+        
+        if not club_id or not section_waid:
+            send_text(waid, "❌ Error: No se encontró la información de la educativa.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        club_ctx = _CTX.get(club_id)
+        if not club_ctx:
+            send_text(waid, "❌ Error: Club no encontrado.")
+            set_session(waid, awaiting=None, buffer=None, mode="root")
+            send_root_menu(waid)
+            return None
+        
+        # Normalizar para comparación
+        body_lower = body_raw.strip().lower()
+        
+        wants_confirm = (
+            matches_option(body_raw_clean, ("✅ Sí, cancelar educativa", "Confirmar cancelación")) or 
+            "confirmar" in body_lower or 
+            ("sí" in body_lower and "cancelar" in body_lower) or
+            body_norm in ("1", "si")
+        )
+        wants_keep = (
+            matches_option(body_raw_clean, ("❌ No, mantener educativa", "Mantener")) or 
+            "mantener" in body_lower or
+            "no" in body_lower or
+            body_norm in ("2", "no")
+        )
+        
+        if wants_confirm:
+            st = club_ctx.state_store.load()
+            
+            # Buscar la educativa
+            section = next((sec for sec in st.get("educational_sections", []) if sec.get("waid") == section_waid), None)
+            
+            if not section:
+                send_text(waid, "❌ Error: No se encontró la educativa.")
+                set_session(waid, awaiting=None, buffer=None, mode="member")
+                send_member_menu(club_ctx, waid)
+                return None
+            
+            # Obtener información antes de eliminar
+            section_name = section.get("nombre_seccion", "Sin nombre")
+            
+            # Eliminar la educativa
+            st["educational_sections"] = [
+                sec for sec in st.get("educational_sections", [])
+                if sec.get("waid") != section_waid
+            ]
+            club_ctx.state_store.save(st)
+            
+            send_text(waid, f"✅ Has cancelado tu educativa: *{section_name}*")
+            set_session(waid, awaiting=None, buffer=None, mode="member")
+            send_member_menu(club_ctx, waid)
+            return None
+        
+        if wants_keep:
+            send_text(waid, "_✅ Mantuviste tu educativa. No se realizó ningún cambio._")
+            set_session(waid, awaiting=None, buffer=None, mode="member")
+            send_member_menu(club_ctx, waid)
+            return None
+        
+        send_text(waid, "❌ Opción inválida. Usa los botones para responder.")
+        cancel_options = [
+            ("✅ Sí, cancelar educativa", "Confirmar cancelación"),
+            ("❌ No, mantener educativa", "Mantener")
+        ]
+        send_list_menu(waid, "Confirma tu decisión:", cancel_options, "Responder")
+        return None
+    
     # Manejo del reemplazo al dejar un cargo
     if awaiting == "leave_role_replacement_choice":
         buffer = s.get("buffer", {})
@@ -2541,7 +2735,7 @@ def _process_message_router(
             send_text(
                 replacement.waid,
                 f"📧 {pretty_name(club_ctx, waid)} dejó el cargo de *{role}* y el bot te seleccionó como reemplazo.\n\n"
-                f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+                f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
             )
             
             set_session(waid, awaiting=None, buffer=None, mode="member")
@@ -2755,14 +2949,6 @@ def _process_message_router(
             "• `Desarrollo de la comunicación no verbal`\n\n"
             "_Nota: Si cometes algún error al escribir el nombre, podrás corregirlo más adelante antes de guardar la información._"
         )
-        send_text(waid, "📝 *Envía el nombre de tu proyecto:*\n\n"
-    "_Ejemplos:_\n"
-    "• `Rompehielos`\n"
-    "• `Desarrollo de la comunicación no verbal`\n\n"
-    "_Nota_: si cometes algún error al escribir el nombre, "
-    "podrás corregirlo más adelante antes de guardar la información."
-)
-
         return jsonify({"status": "ok"})
     
     # Paso 3: Nombre del proyecto
@@ -3500,15 +3686,24 @@ def _process_message_router(
             send_root_menu(waid)
             return jsonify({"status": "ok"})
 
-        # 4) Detección de opciones de menú de miembro desde root -> redirigir
-        if _is_choice(body_raw_clean, MEM_SPEECH_SET) or _is_choice(body_raw_clean, MEM_EDUCATION_SET):
-            log.info("✓ Detectado: Opción de menú de miembro desde root - redirigiendo a menú de miembro")
-            send_text(waid, "ℹ️ Esta opción está disponible en el Menú de miembro. Te llevo allí...")
+        # 4) Detección de opciones de menú de socio desde root (ahora directas si solo tiene un club)
+        if (_is_choice(body_raw_clean, MEM_ROLE_SET) or _is_choice(body_raw_clean, MEM_STATUS_SET) or 
+            _is_choice(body_raw_clean, MEM_SPEECH_SET) or _is_choice(body_raw_clean, MEM_EDUCATION_SET) or
+            _is_choice(body_raw_clean, MEM_CANCEL_SPEECH_SET) or _is_choice(body_raw_clean, MEM_CANCEL_SECTION_SET) or
+            _is_choice(body_raw_clean, MEM_LEAVE_ROLE_SET)):
+            log.info("✓ Detectado: Opción de socio desde menú raíz")
             if len(mclubs) == 1:
+                # Usuario con un solo club: procesar la acción directamente
                 cid = mclubs[0]
+                set_session(waid, mode="root", club=cid)  # Mantener en modo root para simplicidad
+                ctx_member = _CTX[cid]
+                
+                # Redirigir según la opción seleccionada al handler de menú de miembro
+                # Esto lo procesará la sección "if s.get("mode") == "member"" más abajo
                 set_session(waid, mode="member", club=cid, awaiting=None)
-                send_member_menu(_CTX[cid], waid)
-                return jsonify({"status": "ok"})
+                # Re-procesar el mensaje en modo member
+                s = get_session(waid)
+                # Continuar al procesamiento del menú de miembro (no hacer return aquí)
             else:
                 # Múltiples clubs - mostrar picker
                 set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
@@ -3607,11 +3802,11 @@ def _process_message_router(
             except ValueError:
                 numeric_choice = None
 
-        # 1) 🎯 Mi rol
+        # 1) 🎯 Mi cargo
         match_1 = matches_option(body_raw_clean, member_options[0]) if member_options else False
         log.info("¿Match opción 1? %s (numeric: %s)", match_1, numeric_choice == 0)
         if member_options and (match_1 or numeric_choice == 0):
-            log.info("✓ Detectado: Opción 1 - Mi rol")
+            log.info("✓ Detectado: Opción 1 - Mi cargo")
             send_text(waid, who_am_i(ctx_member, waid))
             send_member_menu(ctx_member, waid)
             return jsonify({"status": "ok"})
@@ -3738,13 +3933,65 @@ def _process_message_router(
             set_session(waid, awaiting="section_step1_serie", buffer={"waid": waid, "club": ctx_member.club_id, "round": st["round"]})
             series = [
                 ("🏆 Serie del mejor orador", "Técnicas de oratoria"),
-                ("🎖️ Serie del club exitoso", "Gestión de clubes"),
-                ("💼 Serie de Liderazgo de Excelencia", "Habilidades de liderazgo"),
+                ("🎖️ Club exitoso", "Gestión de clubes"),
+                ("💼 Liderazgo", "Habilidades de liderazgo"),
                 ("💡 Tema libre", "Cualquier tema educativo")
             ]
             send_list_menu(waid, "📚 Selecciona el tipo de serie educativa:", series, "Seleccionar serie")
             return jsonify({"status": "ok"})
 
+        # Verificar si quiere cancelar su discurso
+        if matches_option(body_raw_clean, ("❌ Cancelar mi discurso", "Cancelar mi discurso")) or "cancelar mi discurso" in body_norm or "cancelar discurso" in body_norm:
+            log.info("✓ Detectado: Cancelar mi discurso")
+            st = ctx_member.state_store.load()
+            
+            # Buscar el discurso del socio
+            speech_to_cancel = None
+            for speech in st.get("prepared_speeches", []):
+                if speech.get("waid") == waid:
+                    speech_to_cancel = speech
+                    break
+            
+            if speech_to_cancel:
+                # Confirmar la acción
+                set_session(waid, awaiting="confirm_cancel_speech", buffer={"club": ctx_member.club_id, "speech_id": speech_to_cancel.get("id")})
+                confirm_options = [
+                    ("✅ Sí, cancelar discurso", "Confirmar cancelación"),
+                    ("❌ No, mantener discurso", "Mantener")
+                ]
+                send_text(waid, f"⚠️ Estás a punto de cancelar tu discurso *{speech_to_cancel.get('titulo', 'Sin título')}*.\n\n¿Estás seguro?")
+                send_list_menu(waid, "Confirma tu decisión:", confirm_options, "Responder")
+            else:
+                send_text(waid, "_❌ No tienes ningún discurso registrado actualmente._")
+                send_member_menu(ctx_member, waid)
+            return jsonify({"status": "ok"})
+        
+        # Verificar si quiere cancelar su educativa
+        if matches_option(body_raw_clean, ("❌ Cancelar mi educativa", "Cancelar mi educativa")) or "cancelar mi educativa" in body_norm or "cancelar educativa" in body_norm:
+            log.info("✓ Detectado: Cancelar mi educativa")
+            st = ctx_member.state_store.load()
+            
+            # Buscar la educativa del socio
+            section_to_cancel = None
+            for section in st.get("educational_sections", []):
+                if section.get("waid") == waid:
+                    section_to_cancel = section
+                    break
+            
+            if section_to_cancel:
+                # Confirmar la acción
+                set_session(waid, awaiting="confirm_cancel_section", buffer={"club": ctx_member.club_id, "section_waid": section_to_cancel.get("waid")})
+                confirm_options = [
+                    ("✅ Sí, cancelar educativa", "Confirmar cancelación"),
+                    ("❌ No, mantener educativa", "Mantener")
+                ]
+                send_text(waid, f"⚠️ Estás a punto de cancelar tu sección educativa *{section_to_cancel.get('nombre_seccion', 'Sin nombre')}*.\n\n¿Estás seguro?")
+                send_list_menu(waid, "Confirma tu decisión:", confirm_options, "Responder")
+            else:
+                send_text(waid, "_❌ No tienes ninguna sección educativa registrada actualmente._")
+                send_member_menu(ctx_member, waid)
+            return jsonify({"status": "ok"})
+        
         # Verificar si existe la opción "Dejar mi cargo" (solo si el socio tiene rol confirmado)
         leave_role_option = None
         for i, opt in enumerate(member_options):
@@ -3757,7 +4004,7 @@ def _process_message_router(
             log.info("✓ Detectado: Dejar mi cargo")
             st = ctx_member.state_store.load()
             
-            # Buscar el rol que tiene el socio
+            # Buscar el cargo que tiene el socio
             role_to_remove = None
             for role, info in st.get("accepted", {}).items():
                 if info.get("waid") == waid:
@@ -3864,7 +4111,7 @@ def _process_message_router(
                 pass
 
     # --------- Comandos atajos ---------------------------------------------------------
-    if body_norm in ("mi rol", "mi rol?", "whoami"):
+    if body_norm in ("mi cargo", "mi rol", "mi cargo?", "mi rol?", "whoami"):
         cid = infer_user_club(waid, extract_trailing_club_id(body_raw))
         if cid and cid in _CTX:
             send_text(waid, who_am_i(_CTX[cid], waid))
@@ -3888,7 +4135,7 @@ def _process_message_router(
                 st["confirmations"] = confirmations
                 confirmation_ctx.state_store.save(st)
                 
-                role = confirmations[waid].get("role", "tu rol")
+                role = confirmations[waid].get("role", "tu cargo")
                 send_text(waid, f"✅ Confirmación recibida para *{role}*. ¡Gracias!\n\nNos vemos mañana en la sesión.")
                 
                 # Verificar si todos confirmaron
@@ -3919,7 +4166,7 @@ def _process_message_router(
                 round_no = st.get("round", 0)
                 
                 if not st.get("accepted"):
-                    send_text(waid, "⚠️ No hay roles aceptados para enviar confirmaciones.")
+                    send_text(waid, "⚠️ No hay cargos aceptados para enviar confirmaciones.")
                     return jsonify({"status": "ok"})
                 
                 send_text(waid, f"📨 Enviando confirmaciones de prueba para ronda #{round_no}...")
