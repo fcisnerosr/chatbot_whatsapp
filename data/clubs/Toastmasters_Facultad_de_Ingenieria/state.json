@@ -9,19 +9,21 @@
   "canceled": false,
   "prepared_speeches": [
     {
-      "id": "speech_1765486498_5442",
+      "id": "speech_1765500997_5442",
       "waid": "5212293655442",
       "nombre": "Paco",
-      "pathway": "Influencia persuasiva",
-      "nivel": 1,
-      "proyecto": "Rompehielos",
-      "titulo": "Como ser ingeniero?",
-      "duracion_min": 6,
-      "duracion_max": 9,
+      "pathway": "Liderazgo dinámico",
+      "nivel": 3,
+      "proyecto": "rompehielos",
+      "titulo": "Cómo ser ingeniero?",
+      "duracion_min": 5,
+      "duracion_max": 8,
+      "tema": "Tratará de cómo ser ingeniero y sobrevivir en el intento.",
+      "intereses": "Me interesa la ciencia de los datos y soy catador de chiles rojos",
       "evaluador": "Diana Pale",
       "evaluador_waid": null,
       "status": "confirmado",
-      "solicitud_timestamp": 1765486498,
+      "solicitud_timestamp": 1765500997,
       "round": 0
     }
   ]

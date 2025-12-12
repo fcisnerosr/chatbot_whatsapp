@@ -3010,26 +3010,58 @@ def _process_message_router(
         buffer["duracion_min"] = min_time
         buffer["duracion_max"] = max_time
         
+        # Preguntar por el tema del discurso
+        set_session(waid, awaiting="speech_step5_tema", buffer=buffer)
+        send_text(waid, 
+            "📝 *¿De qué tema trata tu discurso?*\n\n"
+            "_Describe brevemente el tema que abordarás en tu presentación._"
+        )
+        return jsonify({"status": "ok"})
+    
+    # Paso 5: Tema del discurso
+    if awaiting == "speech_step5_tema":
+        if is_interactive:
+            send_text(waid, "Escribe el tema con texto, sin usar botones.")
+            return jsonify({"status": "ok"})
+        buffer = s.get("buffer", {})
+        buffer["tema"] = body_raw.strip()
+        
+        # Preguntar por los intereses
+        set_session(waid, awaiting="speech_step6_intereses", buffer=buffer)
+        send_text(waid, 
+            "🎯 *¿Cuáles son tus intereses actuales?*\n\n"
+            "_Comparte tus intereses para que el Toastmaster pueda hacer una mejor introducción._"
+        )
+        return jsonify({"status": "ok"})
+    
+    # Paso 6: Intereses del orador
+    if awaiting == "speech_step6_intereses":
+        if is_interactive:
+            send_text(waid, "Escribe tus intereses con texto, sin usar botones.")
+            return jsonify({"status": "ok"})
+        buffer = s.get("buffer", {})
+        buffer["intereses"] = body_raw.strip()
+        
         # Obtener evaluadores candidatos (nivel máximo, excluyendo al solicitante)
         ctx_speech = _CTX[buffer["club"]]
         evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
         
         if not evaluadores:
             send_text(waid, "❌ No hay evaluadores disponibles. Envía el nombre manualmente:")
-            set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+            set_session(waid, awaiting="speech_step7_evaluador", buffer=buffer)
             return None
         
         # Enviar menú con evaluadores
-        set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+        set_session(waid, awaiting="speech_step7_evaluador", buffer=buffer)
         evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]  # Solo nombre, sin description
         # Guardar mapeo nombre -> waid en buffer para recuperarlo después
         buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
-        set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+        set_session(waid, awaiting="speech_step7_evaluador", buffer=buffer)
         send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
         return None
     
-    # Paso 6: Evaluador
-    if awaiting == "speech_step6_evaluador":
+    # Paso 7: Evaluador
+    if awaiting == "speech_step7_evaluador":
         buffer = s.get("buffer", {})
         ctx_speech = _CTX[buffer["club"]]
         st_speech = ctx_speech.state_store.load()
@@ -3064,7 +3096,7 @@ def _process_message_router(
                 evaluadores = _get_max_level_members(ctx_speech, exclude_waid=waid)
                 evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
                 buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
-                set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+                set_session(waid, awaiting="speech_step7_evaluador", buffer=buffer)
                 send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
                 return None
             
@@ -3112,7 +3144,7 @@ def _process_message_router(
             
             evaluador_options = [(nombre, "") for nombre, waid_eval in evaluadores]
             buffer["evaluadores_map"] = {nombre: waid_eval for nombre, waid_eval in evaluadores}
-            set_session(waid, awaiting="speech_step6_evaluador", buffer=buffer)
+            set_session(waid, awaiting="speech_step7_evaluador", buffer=buffer)
             send_list_menu(waid, "👤 Selecciona a tu evaluador:", evaluador_options, "Elegir evaluador")
             return None
         
@@ -3195,6 +3227,8 @@ def _process_message_router(
                 "titulo": buffer["titulo"],
                 "duracion_min": buffer["duracion_min"],
                 "duracion_max": buffer["duracion_max"],
+                "tema": buffer.get("tema", ""),
+                "intereses": buffer.get("intereses", ""),
                 "evaluador": buffer["evaluador"],
                 "evaluador_waid": buffer.get("evaluador_waid"),
                 "status": "pendiente_evaluador" if buffer.get("evaluador_waid") else "confirmado",
@@ -3203,6 +3237,24 @@ def _process_message_router(
             }
             st["prepared_speeches"].append(speech_data)
             club_ctx.state_store.save(st)
+            
+            # Notificar al Toastmaster de la noche
+            toastmaster_waid = None
+            for role, info in st.get("accepted", {}).items():
+                if "toastmaster" in role.lower():
+                    toastmaster_waid = info.get("waid")
+                    break
+            
+            if toastmaster_waid:
+                orador_nombre = pretty_name(club_ctx, waid)
+                toastmaster_msg = (
+                    f"🎤 *Nuevo discurso registrado*\n\n"
+                    f"*Orador:* {orador_nombre}\n"
+                    f"*Título:* {buffer['titulo']}\n\n"
+                    f"_*Tema:*_ {buffer.get('tema', 'No especificado')}\n\n"
+                    f"_*Intereses:*_ {buffer.get('intereses', 'No especificado')}"
+                )
+                send_text(toastmaster_waid, toastmaster_msg)
             
             msg = f"✅ Tu discurso ha sido registrado.\n\n📢 Título: '{buffer['titulo']}'"
             if revoked:
