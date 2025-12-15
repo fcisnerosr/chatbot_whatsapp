@@ -406,7 +406,7 @@ MEM_SPEECH_SET  = _set_norm(["🎤 Discurso preparado", "🎤 Dar un discurso pr
 MEM_EDUCATION_SET = _set_norm(["📚 Quiero dar una Sección Educativa", "Quiero dar una Sección Educativa", "Sección Educativa", "Dar una educativa"])
 MEM_CANCEL_SPEECH_SET = _set_norm(["❌ Cancelar mi discurso", "Cancelar mi discurso", "Cancelar discurso"])
 MEM_CANCEL_SECTION_SET = _set_norm(["❌ Cancelar mi educativa", "Cancelar mi educativa", "Cancelar educativa"])
-MEM_LEAVE_ROLE_SET = _set_norm(["❌ Dejar mi cargo", "Dejar mi cargo", "Renunciar al rol asignado"])
+MEM_LEAVE_ROLE_SET = _set_norm(["❌ Dejar mi cargo", "Dejar mi cargo", "Renunciar al cargo asignado"])
 
 def _is_choice(body_raw: str, target_set: Set[str]) -> bool:
     raw = (body_raw or "").strip()
@@ -701,8 +701,8 @@ def admin_remove_member(ctx: Ctx, waid_or_name: str) -> str:
         return "No encontré a esa persona. Ingresa 10 dígitos MX o el nombre exacto."
 
     st = ctx.state_store.load()
-    in_pending = any(d["candidate"] == target.waid and not d.get("accepted") for d in st.get("pending", {}).values())
-    in_accepted = any(v["waid"] == target.waid for v in st.get("accepted", {}).values())
+    in_pending = any(d.get("candidate") == target.waid and not d.get("accepted") for d in st.get("pending", {}).values())
+    in_accepted = any(v.get("waid") == target.waid for v in st.get("accepted", {}).values())
     if in_pending or in_accepted:
         return "No se puede eliminar ahora: tiene un cargo pendiente o aceptado en esta ronda."
 
@@ -761,10 +761,11 @@ def start_new_round(ctx: Ctx, by_admin: str) -> str:
     broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] ▶️ Iniciamos la ronda #{st['round']}.")
 
     for role, info in st["pending"].items():
-        cand = info["candidate"]
-        begin_invite_flow(ctx, cand, role, st["round"])
-        # Programar temporizadores para este rol
-        _schedule_invite_timers(ctx, role, cand, st["round"])
+        cand = info.get("candidate")
+        if cand:
+            begin_invite_flow(ctx, cand, role, st["round"])
+            # Programar temporizadores para este rol
+            _schedule_invite_timers(ctx, role, cand, st["round"])
 
     assigned_roles = set(st["pending"].keys())
     not_assigned = [r.name for r in ctx.club.roles if r.name not in assigned_roles]
@@ -971,7 +972,7 @@ def handle_reject(ctx: Ctx, waid: str) -> str:
             else:
                 del st["pending"][role]
                 ctx.state_store.save(st)
-                broadcast_text(ctx.admins, f"[{ctx.club_id}] No hay más opciones para el rol: {role}.")
+                broadcast_text(ctx.admins, f"[{ctx.club_id}] No hay más opciones para el cargo: {role}.")
                 return "Sin candidatos."
     
     return "No hay nada pendiente para rechazar."
@@ -1020,11 +1021,12 @@ def check_and_announce_if_complete(ctx: Ctx) -> None:
 def who_am_i(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in st["pending"].items():
-        if info["candidate"] == waid and not info["accepted"]:
+        candidate = info.get("candidate")
+        if candidate == waid and not info.get("accepted"):
             title, options, _ = invite_menu_parts(ctx, role, st["round"])
             return _build_menu_text(title, options)
     for role, acc in st["accepted"].items():
-        if acc["waid"] == waid:
+        if acc.get("waid") == waid:
             return f"✅ Confirmaste el cargo {role} en la ronda #{st['round']} ({ctx.club_id})."
     return "➖ No tienes roles asignados ni pendientes."
 
@@ -1032,13 +1034,14 @@ def who_am_i(ctx: Ctx, waid: str) -> str:
 def who_am_i_summary(ctx: Ctx, waid: str) -> str:
     st = ctx.state_store.load()
     for role, info in st["pending"].items():
-        if info["candidate"] == waid and not info["accepted"]:
+        candidate = info.get("candidate")
+        if candidate == waid and not info.get("accepted"):
             return (
                 f"[{ctx.club_id}] 🔔 Tienes una invitación pendiente: {role} en la ronda #{st['round']} ({ctx.club_id}).\n"
                 f"👉 Ve al Menú de socio ({ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
             )
     for role, acc in st["accepted"].items():
-        if acc["waid"] == waid:
+        if acc.get("waid") == waid:
             return f"[{ctx.club_id}] ✅ Confirmaste el cargo {role} en la ronda #{st['round']} ({ctx.club_id})."
     return f"[{ctx.club_id}] ➖ No tienes roles asignados ni pendientes."
 
@@ -1049,10 +1052,13 @@ def status_text(ctx: Ctx) -> str:
     lines = summary_lines + ["", "⏳ Pendientes por confirmar:"]
     any_pending = False
     for role, info in st["pending"].items():
-        if not info["accepted"]:
+        if not info.get("accepted"):
             any_pending = True
-            cand = info["candidate"]
-            lines.append(f"- {role}: propuesto a {pretty_name(ctx, cand)} (rechazos: {len(info['declined_by'])})")
+            cand = info.get("candidate")
+            if cand:
+                lines.append(f"- {role}: propuesto a {pretty_name(ctx, cand)} (rechazos: {len(info.get('declined_by', []))})")
+            else:
+                lines.append(f"- {role}: sin candidato asignado")
     if not any_pending:
         lines.append("- Ninguno")
     if st.get("canceled"):
@@ -1556,7 +1562,7 @@ def _process_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
             st["accepted"][role] = {"waid": new_cand, "name": pretty_name(ctx, new_cand)}
             st["confirmations"][new_cand] = {"role": role, "confirmed": True, "timestamp": time.time()}
             
-            send_text(waid, f"❌ No confirmaste a tiempo. El rol *{role}* fue reasignado.")
+            send_text(waid, f"❌ No confirmaste a tiempo. El cargo *{role}* fue reasignado.")
             send_text(new_cand, f"🔄 Se te asignó el cargo *{role}* para mañana porque el socio anterior no confirmó. Por favor confirma: CONFIRMO")
             
             broadcast_text(ctx.admins, f"[{ctx.club_id}] Cargo *{role}* reasignado de {pretty_name(ctx, waid)} a {pretty_name(ctx, new_cand)}")
@@ -2845,7 +2851,7 @@ def _process_message_router(
         send_text(
             selected_waid,
             f"📧 {pretty_name(club_ctx, waid)} dejó el cargo de *{role}* y te seleccionó como reemplazo.\n\n"
-            f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi rol» para aceptar o rechazar."
+            f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
         )
         
         set_session(waid, awaiting=None, buffer=None, mode="member")
@@ -4048,7 +4054,7 @@ def _process_message_router(
         # Verificar si existe la opción "Dejar mi cargo" (solo si el socio tiene rol confirmado)
         leave_role_option = None
         for i, opt in enumerate(member_options):
-            if matches_option(body_raw_clean, ("❌ Dejar mi cargo", "Renunciar al rol asignado")) or "dejar mi cargo" in body_norm or "renunciar" in body_norm:
+            if matches_option(body_raw_clean, ("❌ Dejar mi cargo", "Renunciar al cargo asignado")) or "dejar mi cargo" in body_norm or "renunciar" in body_norm:
                 if opt[0] == "❌ Dejar mi cargo":
                     leave_role_option = i
                     break
@@ -4164,7 +4170,7 @@ def _process_message_router(
                 pass
 
     # --------- Comandos atajos ---------------------------------------------------------
-    if body_norm in ("mi cargo", "mi rol", "mi cargo?", "mi rol?", "whoami"):
+    if body_norm in ("mi cargo", "mi cargo?", "whoami"):
         cid = infer_user_club(waid, extract_trailing_club_id(body_raw))
         if cid and cid in _CTX:
             send_text(waid, who_am_i(_CTX[cid], waid))
