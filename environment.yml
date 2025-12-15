@@ -14,6 +14,7 @@ dependencies:
   
   # 🔹 Generación de PDFs
   - weasyprint
+  - qrcode
   
   # 🔹 Desarrollo y utilidades
   - cookiecutter        # para plantillas

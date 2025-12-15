@@ -6,6 +6,27 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 from weasyprint import HTML
 import base64
+import qrcode
+from io import BytesIO
+
+
+def generate_qr_code(url: str) -> str:
+    """Genera un QR code y lo retorna como base64 data URI."""
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    img_base64 = base64.b64encode(buffer.read()).decode()
+    return f"data:image/png;base64,{img_base64}"
 
 
 def get_next_tuesday() -> datetime:
@@ -183,22 +204,27 @@ def generate_program_html(ctx, st: dict, session_number: int) -> str:
         time_cell = f'<td class="time-col">{item["time"]}</td>' if item["time"] else '<td></td>'
         
         if item["duration_avg"]:
-            duration_cell = f'<td class="duration-col">{item["duration_min"]}</td>'
-            mins_cell = f'<td class="mins-col {item["css_class"]}">{item["duration_avg"]}</td>'
-            max_cell = f'<td class="mins-col {item["css_class"]}">{item["duration_max"]}</td>'
+            # Tres columnas de tiempo con colores semáforo
+            green_cell = f'<td class="mins-col green-time">{item["duration_min"]}</td>'
+            yellow_cell = f'<td class="mins-col yellow-time">{item["duration_avg"]}</td>'
+            red_cell = f'<td class="mins-col red-time">{item["duration_max"]}</td>'
         else:
-            duration_cell = '<td></td>'
-            mins_cell = '<td></td>'
-            max_cell = '<td></td>'
+            green_cell = '<td></td>'
+            yellow_cell = '<td></td>'
+            red_cell = '<td></td>'
         
         css_class = f' class="{item["css_class"]}"' if item["css_class"] else ''
         title_cell = f'<td class="agenda-col"{css_class}>{item["title"]}</td>'
         member_cell = f'<td class="member-col">{item["member"]}</td>'
         
-        agenda_rows_html += f'<tr>{time_cell}{duration_cell}{mins_cell}{title_cell}{member_cell}</tr>\n'
+        agenda_rows_html += f'<tr>{time_cell}{green_cell}{yellow_cell}{red_cell}{title_cell}{member_cell}</tr>\n'
+    
+    # Generar QR code
+    qr_code_data = generate_qr_code("https://linktr.ee/toastmastersfiuv")
     
     # Reemplazar placeholders
     html_content = template.replace("{{logo_path}}", str(logo_path))
+    html_content = html_content.replace("{{qr_code}}", qr_code_data)
     html_content = html_content.replace("{{session_number}}", str(session_number))
     html_content = html_content.replace("{{theme}}", theme)
     html_content = html_content.replace("{{word}}", word)
@@ -209,8 +235,10 @@ def generate_program_html(ctx, st: dict, session_number: int) -> str:
     return html_content
 
 
-def generate_program_pdf(ctx, st: dict, session_number: int) -> Path:
+def generate_program_pdf(ctx, st: dict, session_number: int = 627) -> Path:
     """Genera el PDF del programa y retorna la ruta del archivo."""
+    # Por ahora usar número fijo 627
+    session_number = 627
     html_content = generate_program_html(ctx, st, session_number)
     
     # Crear directorio de salida

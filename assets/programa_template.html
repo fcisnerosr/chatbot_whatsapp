@@ -151,6 +151,23 @@
             font-size: 8pt;
         }
 
+        .green-time {
+            background: #93c47d;
+            color: white;
+            font-weight: bold;
+        }
+
+        .yellow-time {
+            background: #ffd966;
+            font-weight: bold;
+        }
+
+        .red-time {
+            background: #dc143c;
+            color: white;
+            font-weight: bold;
+        }
+
         .agenda-col {
             width: 50%;
         }
@@ -189,10 +206,41 @@
             font-style: italic;
             color: #666;
         }
+
+        .qr-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            text-align: center;
+            background: white;
+            padding: 10px;
+            border: 2px solid #004976;
+            border-radius: 8px;
+            max-width: 150px;
+        }
+
+        .qr-container img {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .qr-container p {
+            font-size: 8pt;
+            margin: 5px 0 0 0;
+            color: #004976;
+            font-weight: bold;
+        }
     </style>
 </head>
 
 <body>
+    <div class="qr-container">
+        <img src="{{qr_code}}" alt="QR Code">
+        <p>¡Escanea el QR para seguirnos en nuestras redes sociales!</p>
+    </div>
+
     <div class="header">
         <div class="header-title">
             <h1>CLUB TOASTMASTERS FACULTAD DE INGENIERÍA<br>DE LA UNIVERSIDAD VERACRUZANA</h1>
@@ -221,8 +269,8 @@
         <thead>
             <tr>
                 <th class="time-col">HORA DE<br>INICIO</th>
-                <th class="duration-col">MINUTOS</th>
-                <th class="mins-col">TIEMPO</th>
+                <th class="mins-col">MINUTOS</th>
+                <th class="mins-col" colspan="2">TIEMPO</th>
                 <th class="agenda-col">AGENDA</th>
                 <th class="member-col">MIEMBRO</th>
             </tr>

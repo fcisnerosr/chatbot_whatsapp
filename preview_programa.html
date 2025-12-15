@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Programa Sesión Toastmasters</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            font-size: 11pt;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #004976 0%, #006ba6 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .header-title {
+            flex: 1;
+        }
+
+        .header-title h1 {
+            font-size: 20pt;
+            margin: 0;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .logo {
+            width: 120px;
+            height: auto;
+        }
+
+        .session-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 0 10px;
+        }
+
+        .session-number {
+            font-size: 32pt;
+            font-weight: bold;
+            color: #004976;
+        }
+
+        .theme-box {
+            flex: 1;
+            text-align: center;
+            margin: 0 20px;
+        }
+
+        .theme-box h2 {
+            color: #8b1538;
+            font-size: 18pt;
+            margin: 5px 0;
+        }
+
+        .theme-box .theme-text {
+            font-size: 22pt;
+            font-weight: bold;
+            color: #8b1538;
+        }
+
+        .word-box {
+            background: #d3d3d3;
+            padding: 10px;
+            width: 200px;
+        }
+
+        .word-box h3 {
+            margin: 0 0 5px 0;
+            font-size: 12pt;
+        }
+
+        .word-box .word {
+            font-style: italic;
+            font-weight: bold;
+            font-size: 14pt;
+        }
+
+        .word-box .definition {
+            font-size: 9pt;
+            margin-top: 5px;
+        }
+
+        .date-info {
+            text-align: left;
+            font-size: 14pt;
+            font-weight: bold;
+            padding: 0 10px 10px 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        thead {
+            background: white;
+            border-bottom: 2px solid #004976;
+        }
+
+        thead th {
+            padding: 8px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 10pt;
+            color: black;
+            border: 1px solid #ccc;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid #ddd;
+        }
+
+        tbody td {
+            padding: 6px 8px;
+            font-size: 9pt;
+            border: 1px solid #ccc;
+        }
+
+        .time-col {
+            width: 60px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .duration-col {
+            width: 50px;
+            text-align: center;
+        }
+
+        .mins-col {
+            width: 40px;
+            text-align: center;
+            font-size: 8pt;
+        }
+
+        .green-time {
+            background: #93c47d;
+            color: white;
+            font-weight: bold;
+        }
+
+        .yellow-time {
+            background: #ffd966;
+            font-weight: bold;
+        }
+
+        .red-time {
+            background: #dc143c;
+            color: white;
+            font-weight: bold;
+        }
+
+        .agenda-col {
+            width: 50%;
+        }
+
+        .member-col {
+            width: 25%;
+            font-style: italic;
+        }
+
+        .highlight {
+            background: #ffeb3b;
+            font-weight: bold;
+        }
+
+        .red-bg {
+            background: #dc143c;
+            color: white;
+            font-weight: bold;
+        }
+
+        .yellow-bg {
+            background: #ffd966;
+        }
+
+        .green-bg {
+            background: #93c47d;
+        }
+
+        .orange-bg {
+            background: #e69138;
+            color: white;
+        }
+
+        .sub-item {
+            padding-left: 15px;
+            font-style: italic;
+            color: #666;
+        }
+
+        .qr-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            text-align: center;
+            background: white;
+            padding: 10px;
+            border: 2px solid #004976;
+            border-radius: 8px;
+            max-width: 150px;
+        }
+
+        .qr-container img {
+            width: 120px;
+            height: 120px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .qr-container p {
+            font-size: 8pt;
+            margin: 5px 0 0 0;
+            color: #004976;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="qr-container">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect width='120' height='120' fill='%23ddd'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='12' fill='%23666'%3EQR Code%3C/text%3E%3C/svg%3E" alt="QR Code">
+        <p>¡Escanea el QR para seguirnos en nuestras redes sociales!</p>
+    </div>
+
+    <div class="header">
+        <div class="header-title">
+            <h1>CLUB TOASTMASTERS FACULTAD DE INGENIERÍA<br>DE LA UNIVERSIDAD VERACRUZANA</h1>
+        </div>
+        <img src="/home/fcisnerosr/github/chatbot_whastapp/assets/toastmasters_logo.png" alt="Toastmasters International" class="logo">
+    </div>
+
+    <div class="session-info">
+        <div>
+            <div class="session-number">Sesión # 627</div>
+        </div>
+        <div class="theme-box">
+            <h2>TEMA:</h2>
+            <div class="theme-text">Año nuevo</div>
+        </div>
+        <div class="word-box">
+            <h3>PALABRA DEL DIA</h3>
+            <div class="word">auspicioso o auspiciosa</div>
+            <div class="definition">De buen auspicio o agüero, favorable. Ejemplo: "El próximo año se espera sea auspicioso"</div>
+        </div>
+    </div>
+
+    <div class="date-info">Fecha: 16/12/2025</div>
+
+    <table>
+        <thead>
+            <tr>
+                <th class="time-col">HORA DE<br>INICIO</th>
+                <th class="mins-col">MINUTOS</th>
+                <th class="mins-col" colspan="2">TIEMPO</th>
+                <th class="agenda-col">AGENDA</th>
+                <th class="member-col">MIEMBRO</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td class="time-col">19:00</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1.5</td><td class="mins-col red-time">2</td><td class="agenda-col" class="red-bg">Bienvenida del Oficial de Asambleas</td><td class="member-col">Gala Elizabeth Pérez Cabrera</td></tr>
+<tr><td class="time-col">19:01</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1.5</td><td class="mins-col red-time">2</td><td class="agenda-col" class="yellow-bg">Apertura de la Sesión</td><td class="member-col">Diana Pale Molina</td></tr>
+<tr><td class="time-col">19:03</td><td class="mins-col green-time">8</td><td class="mins-col yellow-time">9</td><td class="mins-col red-time">10</td><td class="agenda-col" class="yellow-bg">Entrada del Toastmasters y Auto presentación</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:12</td><td class="mins-col green-time">0</td><td class="mins-col yellow-time">0.5</td><td class="mins-col red-time">1</td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:12</td><td class="mins-col green-time">5</td><td class="mins-col yellow-time">5</td><td class="mins-col red-time">5</td><td class="agenda-col">Sección de Table Topics</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:17</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1</td><td class="mins-col red-time">1</td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:18</td><td class="mins-col green-time">8</td><td class="mins-col yellow-time">9</td><td class="mins-col red-time">10</td><td class="agenda-col" class="orange-bg">Receso, Toma de fotografía y Tiempo de tesorería</td><td class="member-col"></td></tr>
+<tr><td class="time-col">19:27</td><td></td><td></td><td></td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:27</td><td class="mins-col green-time">5</td><td class="mins-col yellow-time">6</td><td class="mins-col red-time">7</td><td class="agenda-col">Pathway Colaboración en Equipo Nivel 04</td><td class="member-col">Diana Pale Molina</td></tr>
+<tr><td></td><td></td><td></td><td></td><td class="agenda-col">Proyecto No.1 Motivar a otros</td><td class="member-col"></td></tr>
+<tr><td></td><td></td><td></td><td></td><td class="agenda-col">Título " Nadaremos, nadaremos "</td><td class="member-col"></td></tr>
+<tr><td class="time-col">19:33</td><td class="mins-col green-time">2</td><td class="mins-col yellow-time">2.5</td><td class="mins-col red-time">3</td><td class="agenda-col">Evaluación Discurso Preparado #1</td><td class="member-col">Ángel Gabriel Domínguez Vázga</td></tr>
+<tr><td class="time-col">19:36</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1</td><td class="mins-col red-time">1</td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:37</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1.5</td><td class="mins-col red-time">2</td><td class="agenda-col" class="red-bg">Evaluación General</td><td class="member-col">Gala Elizabeth Pérez Cabrera</td></tr>
+<tr><td class="time-col">19:38</td><td class="mins-col green-time">0</td><td class="mins-col yellow-time">0.5</td><td class="mins-col red-time">1</td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:39</td><td class="mins-col green-time">2</td><td class="mins-col yellow-time">3</td><td class="mins-col red-time">3</td><td class="agenda-col">Evaluación Gramatical:
+Contador de Vacilaciones:</td><td class="member-col">Carolina Ramos Bastavra
+Ángel Gabriel Domínguez Vázga</td></tr>
+<tr><td class="time-col">19:42</td><td class="mins-col green-time">2</td><td class="mins-col yellow-time">2</td><td class="mins-col red-time">2</td><td class="agenda-col">Evaluación de Tiempo:</td><td class="member-col">Diana Pale Molina</td></tr>
+<tr><td class="time-col">19:44</td><td class="mins-col green-time">13</td><td class="mins-col yellow-time">14</td><td class="mins-col red-time">15</td><td class="agenda-col">Evaluación general:</td><td class="member-col">Gala Elizabeth Pérez Cabrera</td></tr>
+<tr><td class="time-col">19:58</td><td class="mins-col green-time">0</td><td class="mins-col yellow-time">1</td><td class="mins-col red-time">1</td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">19:59</td><td class="mins-col green-time">1</td><td class="mins-col yellow-time">1</td><td class="mins-col red-time">2</td><td class="agenda-col">Resultados de Table Topics</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">20:00</td><td></td><td></td><td></td><td class="agenda-col">Intervención del Toastmasters</td><td class="member-col">Rodrigo González Suárez</td></tr>
+<tr><td class="time-col">20:00</td><td class="mins-col green-time">4</td><td class="mins-col yellow-time">5</td><td class="mins-col red-time">6</td><td class="agenda-col" class="green-bg">Clausura y Tiempo de Presidencia</td><td class="member-col">Diana Pale Molina</td></tr>
+
+        </tbody>
+    </table>
+</body>
+
+</html>
