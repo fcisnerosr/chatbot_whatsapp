@@ -1250,7 +1250,7 @@ def render_admin_club_picker(aclubs: List[str]) -> str:
 def _admin_menu_parts(ctx: Ctx) -> Tuple[str, List[Tuple[str, str]], str]:
     title = f"Asistente de asignación de cargos: Menú admin [{ctx.club_id}]. Elija una opción"
     options: List[Tuple[str, str]] = [
-        ("▶️ Iniciar ronda", "Proponer candidatos por cargo"),
+        # ("▶️ Iniciar ronda", "Proponer candidatos por cargo"),  # DESHABILITADO TEMPORALMENTE
         ("📊 Ver estado", "Resumen actual y pendientes"),
         ("🛑 Cancelar ronda", "Borrar pendientes y aceptados"),
         ("♻️ Resetear estado", "Reiniciar club a cero"),
