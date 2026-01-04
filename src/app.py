@@ -1961,6 +1961,7 @@ def _process_message_router(
         s.get("awaiting"),
         s.get("club"),
     )
+    log.info("📨 Mensaje recibido: '%s' (normalizado: '%s')", body_raw[:100], body_norm[:100])
 
     if body_norm == "home":
         set_session(waid, awaiting=None, buffer=None, mode="root")
@@ -1994,41 +1995,10 @@ def _process_message_router(
         return jsonify({"status": "ok"})
 
     # Si llega sólo el título del listado ("Menú principal") ignóralo y vuelve a pintar
-    if _is_choice(body_raw_clean, _set_norm(["Menú principal"])):
+    # SOLO cuando NO está en un flujo específico
+    if s.get("mode") == "root" and not awaiting and _is_choice(body_raw_clean, _set_norm(["Menú principal"])):
         log.info("Usuario hizo clic en botón 'Menú principal' - reenviando menú")
         send_root_menu(waid)
-        return jsonify({"status": "ok"})
-
-    # Si llega sólo el título del botón ("Menú de socio") ignoralo y vuelve a pintar
-    if _is_choice(body_raw_clean, _set_norm(["Menú de socio"])):
-        log.info("Usuario hizo clic en botón 'Menú de socio' - cambiando a modo member")
-        current_cid_temp = s.get("club") or infer_user_club(waid)
-        if current_cid_temp and current_cid_temp in _CTX:
-            set_session(waid, mode="member", club=current_cid_temp, awaiting=None)
-            send_member_menu(_CTX[current_cid_temp], waid)
-        else:
-            send_root_menu(waid)
-        return jsonify({"status": "ok"})
-
-    # Si llega sólo el título del botón ("Menú de admin") ignoralo y vuelve a pintar
-    if _is_choice(body_raw_clean, _set_norm(["Menú de admin"])):
-        log.info("Usuario hizo clic en botón 'Menú de admin' - cambiando a modo admin")
-        aclubs_temp = admin_clubs(waid)
-        if not aclubs_temp:
-            send_text(waid, "❌ No tienes permisos de administrador.")
-            send_root_menu(waid)
-            return jsonify({"status": "ok"})
-        current_cid_temp = s.get("club") or infer_user_club(waid)
-        if current_cid_temp and current_cid_temp in _CTX and current_cid_temp in aclubs_temp:
-            set_session(waid, mode="admin", club=current_cid_temp, awaiting=None)
-            send_admin_menu(_CTX[current_cid_temp], waid)
-        else:
-            # Si es admin pero de otro club o múltiples clubs
-            if len(aclubs_temp) == 1:
-                set_session(waid, mode="admin", club=aclubs_temp[0], awaiting=None)
-                send_admin_menu(_CTX[aclubs_temp[0]], waid)
-            else:
-                send_root_menu(waid)
         return jsonify({"status": "ok"})
 
     if not s.get("club"):
@@ -3754,15 +3724,12 @@ def _process_message_router(
             if len(mclubs) == 1:
                 # Usuario con un solo club: procesar la acción directamente
                 cid = mclubs[0]
-                set_session(waid, mode="root", club=cid)  # Mantener en modo root para simplicidad
-                ctx_member = _CTX[cid]
-                
-                # Redirigir según la opción seleccionada al handler de menú de miembro
-                # Esto lo procesará la sección "if s.get("mode") == "member"" más abajo
+                # Cambiar a modo member y recargar sesión para que el siguiente bloque lo procese
                 set_session(waid, mode="member", club=cid, awaiting=None)
-                # Re-procesar el mensaje en modo member
-                s = get_session(waid)
-                # Continuar al procesamiento del menú de miembro (no hacer return aquí)
+                s = get_session(waid)  # Recargar sesión actualizada
+                current_cid = cid
+                ctx = _CTX[cid]
+                # IMPORTANTE: No hacer return aquí, dejar que continúe al bloque "if s.get("mode") == "member""
             else:
                 # Múltiples clubs - mostrar picker
                 set_session(waid, mode="member_pick", awaiting="pick_member_club", club=None, buffer=None)
