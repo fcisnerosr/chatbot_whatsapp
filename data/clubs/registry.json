@@ -1,5 +1,10 @@
 {
   "clubs": {
+    "club_1": {
+      "admins": [
+        "5212293655442"
+      ]
+    },
     "Toastmasters_Facultad_de_Ingenieria": {
       "admins": [
         "5212293655442"
