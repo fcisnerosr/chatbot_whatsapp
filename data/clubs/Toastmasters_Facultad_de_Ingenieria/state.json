@@ -1,30 +1,111 @@
 {
-  "round": 0,
-  "pending": {},
-  "accepted": {},
-  "members_cycle": {
-    "5212293655442": []
+  "round": 1,
+  "pending": {
+    "Evaluador gramatical": {
+      "candidate": null,
+      "declined_by": [
+        "5212293655442"
+      ],
+      "accepted": false,
+      "timestamp": 1765856888.1059315
+    },
+    "Toastmasters de la noche": {
+      "candidate": "5215586466230",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1765856888.1059842
+    },
+    "Topic Master: Director de temas improvisados": {
+      "candidate": "5212721073312",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1765856888.1060476
+    },
+    "Evaluador de muletillas": {
+      "candidate": "5219212671618",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1765856888.1060967
+    },
+    "Evaluador del tiempo": {
+      "candidate": "5215634948177",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1765856888.1061394
+    }
   },
-  "last_summary": null,
+  "accepted": {
+    "Evaluador de muletillas": {
+      "waid": "5219212671618",
+      "name": "Daniel Peral"
+    },
+    "Topic Master: Director de temas improvisados": {
+      "waid": "5212721073312",
+      "name": "Marcos Aguilar"
+    },
+    "Evaluador del tiempo": {
+      "waid": "5215634948177",
+      "name": "Roger Urgel"
+    },
+    "Toastmasters de la noche": {
+      "waid": "5215586466230",
+      "name": "Claudia Vazquez"
+    }
+  },
+  "members_cycle": {
+    "5212293655442": [
+      "Evaluador gramatical"
+    ],
+    "5219212671618": [
+      "Evaluador de muletillas"
+    ],
+    "5212721073312": [
+      "Topic Master: Director de temas improvisados"
+    ],
+    "5215634948177": [
+      "Evaluador del tiempo"
+    ],
+    "5215586466230": [
+      "Toastmasters de la noche"
+    ]
+  },
+  "last_summary": "📋 Reunión #1 — Resumen de roles\n- Evaluador del tiempo: Roger Urgel\n- Evaluador de muletillas: Daniel Peral\n- Evaluador gramatical: Paco\n- Topic Master: Director de temas improvisados: Marcos Aguilar\n- Toastmasters de la noche: Claudia Vazquez",
   "canceled": false,
+  "confirmations_scheduled": true,
+  "session_theme": {
+    "topic": "Fin de año",
+    "waid": "5215586466230",
+    "nombre": "Claudia Vazquez",
+    "round": 1
+  },
+  "word_of_the_day": {
+    "palabra": "Vela",
+    "significado": "coso que se quema",
+    "ejemplo": "mi vela está encendida",
+    "waid": "5212293655442",
+    "nombre": "Paco",
+    "round": 1
+  },
   "prepared_speeches": [
     {
-      "id": "speech_1765500997_5442",
-      "waid": "5212293655442",
-      "nombre": "Paco",
-      "pathway": "Liderazgo dinámico",
-      "nivel": 3,
-      "proyecto": "rompehielos",
-      "titulo": "Cómo ser ingeniero?",
+      "id": "speech_1765857168_1618",
+      "waid": "5219212671618",
+      "nombre": "Daniel Peral",
+      "pathway": "Comunicación visionaria",
+      "nivel": 1,
+      "proyecto": "La visión de los visionarios que ven mas allá de lo evidente",
+      "titulo": "Notas de Leono para usar la espada del Augurio",
       "duracion_min": 5,
-      "duracion_max": 8,
-      "tema": "Tratará de cómo ser ingeniero y sobrevivir en el intento.",
-      "intereses": "Me interesa la ciencia de los datos y soy catador de chiles rojos",
-      "evaluador": "Diana Pale",
-      "evaluador_waid": null,
+      "duracion_max": 7,
+      "tema": "De la influencia de los Thunkercats para los visionarios actuales",
+      "intereses": "Mujeres mayores y Bolivianos",
+      "evaluador": "Roger Urgel",
+      "evaluador_waid": "5215634948177",
       "status": "confirmado",
-      "solicitud_timestamp": 1765500997,
-      "round": 0
+      "solicitud_timestamp": 1765857168,
+      "round": 1,
+      "evaluador_confirmado_timestamp": 1765857190
     }
-  ]
+  ],
+  "educational_sections": []
 }
