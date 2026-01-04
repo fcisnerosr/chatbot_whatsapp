@@ -1962,6 +1962,9 @@ def _process_message_router(
         s.get("club"),
     )
     log.info("📨 Mensaje recibido: '%s' (normalizado: '%s')", body_raw[:100], body_norm[:100])
+    
+    # Obtener awaiting temprano para usarlo en validaciones
+    awaiting = s.get("awaiting")
 
     if body_norm == "home":
         set_session(waid, awaiting=None, buffer=None, mode="root")
@@ -2011,8 +2014,6 @@ def _process_message_router(
 
     current_cid = s.get("club") or infer_user_club(waid, extract_trailing_club_id(body_raw))
     ctx = _CTX[current_cid] if current_cid and current_cid in _CTX else None
-
-    awaiting = s.get("awaiting")
 
     # --------- Flujos de invitación (persisten sobre cualquier menú) -------------------
     if awaiting == "invite_decision":
