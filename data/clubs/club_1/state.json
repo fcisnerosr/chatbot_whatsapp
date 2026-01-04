@@ -1,19 +1,10 @@
 {
-  "round": 1,
+  "round": 0,
   "pending": {},
-  "accepted": {
-    "Toastmasters de la noche": {
-      "candidate": "5212293655442",
-      "declined_by": [],
-      "accepted": true
-    }
-  },
+  "accepted": {},
   "members_cycle": {
-    "5212293655442": [
-      "Toastmasters de la noche"
-    ]
+    "5212293655442": []
   },
   "last_summary": null,
-  "canceled": false,
-  "session_theme": null
+  "canceled": false
 }
