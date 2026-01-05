@@ -1,0 +1,75 @@
+{
+  "members": [
+    {
+      "name": "Paco",
+      "waid": "5212293655442",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Rodrigo",
+      "waid": "5212299121271",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Arturo",
+      "waid": "5212291394351",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Gabino",
+      "waid": "5212295495817",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Diana",
+      "waid": "5212283583336",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Jafet",
+      "waid": "5212299066499",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Alberto",
+      "waid": "5212291251946",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    }
+  ],
+  "roles": [
+    {
+      "name": "Evaluador del tiempo",
+      "difficulty": 1
+    },
+    {
+      "name": "Evaluador de muletillas",
+      "difficulty": 2
+    },
+    {
+      "name": "Evaluador gramatical",
+      "difficulty": 4
+    },
+    {
+      "name": "Topic Master: Director de temas improvisados",
+      "difficulty": 3
+    },
+    {
+      "name": "Toastmasters de la noche",
+      "difficulty": 5
+    }
+  ]
+}
