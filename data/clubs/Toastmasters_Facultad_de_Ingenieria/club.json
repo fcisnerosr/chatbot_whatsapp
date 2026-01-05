@@ -1,61 +1,53 @@
 {
   "members": [
     {
-      "name": "Eduardo",
-      "waid": "5212291598475",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": [
-        "Evaluador del tiempo"
-      ]
-    },
-    {
-      "name": "Francisco",
-      "waid": "5212291728511",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": [
-        "Evaluador gramatical"
-      ]
-    },
-    {
-      "name": "Paquito",
-      "waid": "5212291521987",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Evaluador gramatical",
-        "Evaluador de muletillas",
-        "Toastmasters de la noche",
-        "Evaluador del tiempo",
-        "Toastmasters de la noche",
-        "Evaluador del tiempo"
-      ]
-    },
-    {
-      "name": "Lilia",
-      "waid": "5215586466230",
-      "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Topic Master: Director de temas improvisados",
-        "Evaluador del tiempo",
-        "Toastmasters de la noche"
-      ]
-    },
-    {
-      "name": "Claudia",
+      "name": "Paco",
       "waid": "5212293655442",
       "is_guest": false,
-      "level": 6,
-      "roles_done": [
-        "Evaluador del tiempo",
-        "Toastmasters de la noche",
-        "Toastmasters de la noche",
-        "Toastmasters de la noche",
-        "Toastmasters de la noche",
-        "Toastmasters de la noche"
-      ]
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Rodrigo",
+      "waid": "5212299121271",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Arturo",
+      "waid": "5212291394351",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Gabino",
+      "waid": "5212295495817",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Diana",
+      "waid": "5212283583336",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Jafet",
+      "waid": "5212299066499",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Alberto",
+      "waid": "5212291251946",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
     }
   ],
   "roles": [
