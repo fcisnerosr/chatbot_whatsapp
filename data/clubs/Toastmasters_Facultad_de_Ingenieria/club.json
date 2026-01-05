@@ -13,11 +13,13 @@
       "name": "Francisco",
       "waid": "5212291728511",
       "is_guest": false,
-      "level": 4,
-      "roles_done": []
+      "level": 5,
+      "roles_done": [
+        "Evaluador gramatical"
+      ]
     },
     {
-      "name": "Lilia",
+      "name": "Paquito",
       "waid": "5212291521987",
       "is_guest": false,
       "level": 6,
@@ -25,23 +27,33 @@
         "Evaluador gramatical",
         "Evaluador de muletillas",
         "Toastmasters de la noche",
+        "Evaluador del tiempo",
+        "Toastmasters de la noche",
         "Evaluador del tiempo"
       ]
     },
     {
-      "name": "Claudia",
+      "name": "Lilia",
       "waid": "5215586466230",
       "is_guest": false,
-      "level": 4,
-      "roles_done": []
+      "level": 6,
+      "roles_done": [
+        "Topic Master: Director de temas improvisados",
+        "Evaluador del tiempo",
+        "Toastmasters de la noche"
+      ]
     },
     {
-      "name": "Paquito",
+      "name": "Claudia",
       "waid": "5212293655442",
       "is_guest": false,
       "level": 6,
       "roles_done": [
         "Evaluador del tiempo",
+        "Toastmasters de la noche",
+        "Toastmasters de la noche",
+        "Toastmasters de la noche",
+        "Toastmasters de la noche",
         "Toastmasters de la noche"
       ]
     }

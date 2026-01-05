@@ -1734,6 +1734,92 @@ def _send_theme_confirm_prompt(waid: str, buffer: dict) -> None:
     send_menu_with_quick_replies(waid, "Elige una opción", ["💾 Guardar", "✏️ Editar temática"])
 
 
+def _notify_theme_to_relevant_roles(ctx: Ctx, theme: str) -> None:
+    """Notifica la temática de la sesión al Evaluador gramatical y Topic Master (aceptados y pendientes)."""
+    st = ctx.state_store.load()
+    
+    # Buscar roles que necesitan conocer la temática
+    roles_to_notify = []
+    notified_waids = set()  # Para evitar duplicados
+    
+    # 1. Buscar en roles ya aceptados
+    for role, info in st.get("accepted", {}).items():
+        role_lower = role.lower()
+        waid = info.get("waid")
+        if not waid or waid in notified_waids:
+            continue
+            
+        if "evaluador gramatical" in role_lower or "gramatical" in role_lower:
+            roles_to_notify.append((waid, role, "Evaluador gramatical", True))
+            notified_waids.add(waid)
+        elif "topic master" in role_lower or "temas improvisados" in role_lower:
+            roles_to_notify.append((waid, role, "Topic Master", True))
+            notified_waids.add(waid)
+    
+    # 2. Buscar en roles pendientes (invitaciones aún no aceptadas)
+    for role, info in st.get("pending", {}).items():
+        role_lower = role.lower()
+        waid = info.get("candidate")
+        if not waid or waid in notified_waids:
+            continue
+            
+        if "evaluador gramatical" in role_lower or "gramatical" in role_lower:
+            roles_to_notify.append((waid, role, "Evaluador gramatical", False))
+            notified_waids.add(waid)
+        elif "topic master" in role_lower or "temas improvisados" in role_lower:
+            roles_to_notify.append((waid, role, "Topic Master", False))
+            notified_waids.add(waid)
+    
+    # Enviar notificaciones personalizadas
+    for waid, full_role_name, role_type, is_accepted in roles_to_notify:
+        if not waid:
+            continue
+        
+        # Ajustar mensaje según si ya aceptó o está pendiente
+        status_prefix = "" if is_accepted else "Se le ha propuesto el cargo de "
+        
+        if role_type == "Evaluador gramatical":
+            if is_accepted:
+                message = (
+                    f"📝 *Temática de la Sesión*\n\n"
+                    f"Estimado/a Evaluador gramatical, le informamos que la temática de la sesión será:\n\n"
+                    f"🎯 *\"{theme}\"*\n\n"
+                    f"Esta información le será útil para seleccionar la palabra del día que mejor se alinee "
+                    f"con el tema de nuestra reunión."
+                )
+            else:
+                message = (
+                    f"📝 *Temática de la Sesión*\n\n"
+                    f"Estimado/a socio/a, se le ha propuesto el cargo de *Evaluador gramatical*. "
+                    f"Le informamos que la temática de la sesión será:\n\n"
+                    f"🎯 *\"{theme}\"*\n\n"
+                    f"Esta información le será útil para considerar su participación y preparar "
+                    f"la palabra del día en caso de aceptar el cargo."
+                )
+        else:  # Topic Master
+            if is_accepted:
+                message = (
+                    f"📝 *Temática de la Sesión*\n\n"
+                    f"Estimado/a Topic Master, le informamos que la temática de la sesión será:\n\n"
+                    f"🎯 *\"{theme}\"*\n\n"
+                    f"Esta información le permitirá preparar preguntas y temas improvisados relacionados "
+                    f"con este contexto para nuestra reunión."
+                )
+            else:
+                message = (
+                    f"📝 *Temática de la Sesión*\n\n"
+                    f"Estimado/a socio/a, se le ha propuesto el cargo de *Topic Master*. "
+                    f"Le informamos que la temática de la sesión será:\n\n"
+                    f"🎯 *\"{theme}\"*\n\n"
+                    f"Esta información le permitirá considerar su participación y preparar "
+                    f"preguntas y temas improvisados en caso de aceptar el cargo."
+                )
+        
+        send_text(waid, message)
+        status = "aceptado" if is_accepted else "pendiente"
+        log.info(f"Temática notificada a {role_type} ({status}) ({waid}): {theme}")
+
+
 def _word_confirm_summary(buffer: dict) -> str:
     return (
         f"📋 Resumen de Palabra del Día\n\n"
@@ -2389,6 +2475,10 @@ def _process_message_router(
             }
             club_ctx.state_store.save(st)
             send_text(waid, f"✅ Temática guardada: '{buffer['topic']}'")
+            
+            # Notificar inmediatamente a Evaluador gramatical y Topic Master
+            _notify_theme_to_relevant_roles(club_ctx, buffer["topic"])
+            
             set_session(waid, awaiting=None, buffer=None, mode="root")
             send_root_menu(waid)
             return None
