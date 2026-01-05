@@ -1,14 +1,71 @@
 {
-  "round": 0,
-  "pending": {},
-  "accepted": {},
+  "round": 1,
+  "pending": {
+    "Toastmasters de la noche": {
+      "candidate": "5212293655442",
+      "declined_by": [],
+      "accepted": true,
+      "timestamp": 1767613197.1506636
+    },
+    "Evaluador gramatical": {
+      "candidate": "5212291728511",
+      "declined_by": [],
+      "accepted": false,
+      "timestamp": 1767613197.1507175
+    },
+    "Topic Master: Director de temas improvisados": {
+      "candidate": "5212291598475",
+      "declined_by": [
+        "5215586466230"
+      ],
+      "accepted": false,
+      "timestamp": 1767613197.150767
+    },
+    "Evaluador de muletillas": {
+      "candidate": "5212291521987",
+      "declined_by": [
+        "5212291598475"
+      ],
+      "accepted": false,
+      "timestamp": 1767613197.1508145
+    },
+    "Evaluador del tiempo": {
+      "waid": "5212291598475",
+      "nombre": "Eduardo",
+      "propuesto_por": "Lilia",
+      "timestamp": 1767613558,
+      "accepted": true
+    }
+  },
+  "accepted": {
+    "Toastmasters de la noche": {
+      "waid": "5212293655442",
+      "name": "Paquito"
+    },
+    "Evaluador del tiempo": {
+      "waid": "5212291598475",
+      "name": "Eduardo"
+    }
+  },
   "members_cycle": {
-    "5222291598475": [],
-    "5222291728511": [],
-    "5222291521987": [],
+    "5212291598475": [
+      "Evaluador del tiempo"
+    ],
+    "5212291728511": [],
+    "5212291521987": [
+      "Evaluador del tiempo"
+    ],
     "5215586466230": [],
-    "5212293655442": []
+    "5212293655442": [
+      "Toastmasters de la noche"
+    ]
   },
   "last_summary": null,
-  "canceled": false
+  "canceled": false,
+  "session_theme": {
+    "topic": "Música clásica en la actualidad",
+    "waid": "5212293655442",
+    "nombre": "Paquito",
+    "round": 1
+  }
 }

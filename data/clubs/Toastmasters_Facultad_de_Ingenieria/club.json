@@ -2,24 +2,31 @@
   "members": [
     {
       "name": "Eduardo",
-      "waid": "5222291598475",
+      "waid": "5212291598475",
       "is_guest": false,
-      "level": 4,
-      "roles_done": []
+      "level": 5,
+      "roles_done": [
+        "Evaluador del tiempo"
+      ]
     },
     {
       "name": "Francisco",
-      "waid": "5222291728511",
+      "waid": "5212291728511",
       "is_guest": false,
       "level": 4,
       "roles_done": []
     },
     {
       "name": "Lilia",
-      "waid": "5222291521987",
+      "waid": "5212291521987",
       "is_guest": false,
-      "level": 4,
-      "roles_done": []
+      "level": 6,
+      "roles_done": [
+        "Evaluador gramatical",
+        "Evaluador de muletillas",
+        "Toastmasters de la noche",
+        "Evaluador del tiempo"
+      ]
     },
     {
       "name": "Claudia",
@@ -32,8 +39,11 @@
       "name": "Paquito",
       "waid": "5212293655442",
       "is_guest": false,
-      "level": 4,
-      "roles_done": []
+      "level": 6,
+      "roles_done": [
+        "Evaluador del tiempo",
+        "Toastmasters de la noche"
+      ]
     }
   ],
   "roles": [

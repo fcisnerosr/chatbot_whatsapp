@@ -1274,10 +1274,7 @@ def send_admin_menu(ctx: Ctx, waid: str) -> dict:
 
 def _get_role_timeout_hours(role: str) -> float:
     """Retorna el tiempo límite en horas para responder según el rol."""
-    role_lower = role.lower()
-    if "evaluador gramatical" in role_lower or "toastmasters de la noche" in role_lower or "toastmaster" in role_lower:
-        return 4.0
-    return 24.0  # 24 horas por defecto para otros roles
+    return 12.0  # 12 horas para todos los roles
 
 
 def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tuple[str, str]], str]:
@@ -1296,7 +1293,7 @@ def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tup
     
     # Definir tiempo de respuesta según el rol
     timeout_hours = _get_role_timeout_hours(role)
-    time_limit = f"\n⏰ Tienes {int(timeout_hours)} horas para responder."
+    time_limit = f"\n⏰ Dispones de {int(timeout_hours)} horas para confirmar tu participación."
     
     title = (
         f"🔔 Invitación: {role} en la reunión #{round_no} ({ctx.club_id}).{theme_text}{time_limit}\n"
@@ -1338,27 +1335,102 @@ def send_invite_menu(ctx: Ctx, waid: str, role: str, round_no: int) -> None:
     begin_invite_flow(ctx, waid, role, round_no)
 
 
+def begin_replacement_flow(ctx: Ctx, waid: str, role: str, round_no: int, replaced_by_name: str) -> None:
+    """Inicia flujo de aceptación/rechazo cuando alguien deja un cargo y selecciona reemplazo."""
+    current = get_session(waid)
+    prev_mode = current.get("mode") if current else None
+    prev_club = current.get("club") if current else None
+    
+    set_session(
+        waid,
+        awaiting="replacement_decision",
+        buffer={
+            "role": role,
+            "waid": waid,
+            "club": ctx.club_id,
+            "round": round_no,
+            "replaced_by": replaced_by_name,
+            "prev_mode": prev_mode,
+            "prev_club": prev_club,
+        },
+    )
+    
+    # Mensaje profesional personalizado
+    title = (
+        f"🔄 *Cambio de Cargo*\n\n"
+        f"Estimado/a socio/a, *{replaced_by_name}* ha dejado el cargo de *{role}* "
+        f"en la reunión #{round_no} y lo ha seleccionado a usted como su reemplazo.\n\n"
+        f"¿Acepta asumir este cargo?"
+    )
+    
+    options = ["✅ Aceptar cargo", "❌ Declinar cargo"]
+    send_menu_with_quick_replies(waid, title, options)
+
+
 def _schedule_invite_timers(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
     """Programa temporizadores escalonados para recordatorios y auto-rechazo."""
     timeout_hours = _get_role_timeout_hours(role)
     timeout_seconds = timeout_hours * 3600
     
-    # Notificaciones escalonadas según el tiempo total
-    if timeout_hours >= 4:
-        # Para roles con 4+ horas:
-        # - Recordatorio a mitad de tiempo (2 horas)
-        # - Alerta urgente 30 min antes
-        # - Auto-rechazo al vencer
-        Timer(2 * 3600, _send_reminder, args=(ctx, role, waid, round_no, "mitad")).start()
-        Timer(timeout_seconds - 1800, _send_reminder, args=(ctx, role, waid, round_no, "urgente")).start()
-        Timer(timeout_seconds, _auto_reject_invite, args=(ctx, role, waid, round_no)).start()
-    else:
-        # Para roles con menos tiempo: solo alerta 1 hora antes y auto-rechazo
-        if timeout_hours > 1:
-            Timer(timeout_seconds - 3600, _send_reminder, args=(ctx, role, waid, round_no, "urgente")).start()
-        Timer(timeout_seconds, _auto_reject_invite, args=(ctx, role, waid, round_no)).start()
+    # Sistema de notificaciones para 12 horas:
+    # - Recordatorio cuando falten 2 horas
+    # - Auto-rechazo al vencer el plazo
+    Timer(timeout_seconds - 7200, _send_reminder, args=(ctx, role, waid, round_no, "dos_horas")).start()
+    Timer(timeout_seconds, _auto_reject_invite, args=(ctx, role, waid, round_no)).start()
     
     log.info(f"Temporizadores programados para {role} ({waid}): {timeout_hours}h")
+
+
+def _get_professional_reminder_message(role: str, round_no: int) -> str:
+    """Genera mensaje profesional personalizado por cargo para recordatorio de 2 horas."""
+    role_lower = role.lower()
+    
+    if "toastmaster" in role_lower and "topic" not in role_lower:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Como Toastmaster de la noche, usted será el maestro de ceremonias y conductor principal de nuestra sesión. "
+                f"Su confirmación nos permitirá coordinar adecuadamente el programa.\n\n"
+                f"Por favor, responda a la brevedad posible.")
+    
+    elif "evaluador gramatical" in role_lower or "gramatical" in role_lower:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Su rol será fundamental para ayudar a nuestros oradores a enriquecer su vocabulario y expresión verbal. "
+                f"Agradecemos su pronta confirmación.\n\n"
+                f"Por favor, responda a la brevedad posible.")
+    
+    elif "topic master" in role_lower or "temas improvisados" in role_lower:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Su creatividad será esencial para dirigir la sección de discursos improvisados y estimular "
+                f"el pensamiento ágil de nuestros participantes.\n\n"
+                f"Por favor, responda a la brevedad posible.")
+    
+    elif "muletilla" in role_lower:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Su atención al detalle será valiosa para ayudar a los oradores a identificar y reducir "
+                f"sus palabras de relleno, mejorando así la claridad de sus presentaciones.\n\n"
+                f"Por favor, responda a la brevedad posible.")
+    
+    elif "tiempo" in role_lower:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Su puntualidad y precisión serán fundamentales para mantener el ritmo adecuado de nuestra sesión "
+                f"y ayudar a los oradores a desarrollar su gestión del tiempo.\n\n"
+                f"Por favor, responda a la brevedad posible.")
+    
+    else:
+        return (f"⏰ *Recordatorio Importante*\n\n"
+                f"Estimado/a socio/a, le recordamos que restan *2 horas* para confirmar su participación "
+                f"como *{role}* en la reunión #{round_no}.\n\n"
+                f"Su contribución es muy importante para el éxito de nuestra sesión.\n\n"
+                f"Por favor, responda a la brevedad posible.")
 
 
 def _send_reminder(ctx: Ctx, role: str, waid: str, round_no: int, reminder_type: str) -> None:
@@ -1373,12 +1445,8 @@ def _send_reminder(ctx: Ctx, role: str, waid: str, round_no: int, reminder_type:
     if info.get("candidate") != waid or info.get("accepted"):
         return
     
-    if reminder_type == "mitad":
-        timeout_hours = _get_role_timeout_hours(role)
-        remaining = timeout_hours / 2
-        msg = f"⏰ Recordatorio: Te quedan {int(remaining)} horas para responder a tu invitación de *{role}* (reunión #{round_no})."
-    elif reminder_type == "urgente":
-        msg = f"⚠️ URGENTE: Te quedan 30 minutos para responder a tu invitación de *{role}* (reunión #{round_no}). Si no respondes, se asignará a otro socio."
+    if reminder_type == "dos_horas":
+        msg = _get_professional_reminder_message(role, round_no)
     else:
         msg = f"⏰ Recordatorio: Tienes una invitación pendiente para *{role}* (reunión #{round_no})."
     
@@ -1407,8 +1475,8 @@ def _auto_reject_invite(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
     
     ctx.state_store.save(st)
     
-    # Notificar al socio
-    send_text(waid, f"⏰ Tiempo agotado: Tu invitación para *{role}* ha expirado y se asignará a otro socio.")
+    # Notificar al socio con mensaje profesional
+    send_text(waid, f"⏰ *Plazo vencido*\n\nEstimado/a socio/a, el tiempo límite de 12 horas para confirmar su participación como *{role}* ha concluido. \n\nEste cargo será reasignado a otro miembro del club. Agradecemos su comprensión.")
     
     # Buscar nuevo candidato
     excluded = set(a["waid"] for a in st["accepted"].values())
@@ -1422,7 +1490,7 @@ def _auto_reject_invite(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
         info["timestamp"] = time.time()
         ctx.state_store.save(st)
         
-        send_text(new_cand, f"🔄 Reasignación: Se te invita a *{role}* (reunión #{round_no}) porque el candidato anterior no respondió a tiempo.")
+        send_text(new_cand, f"🔄 *Nueva Invitación*\n\nEstimado/a socio/a, se le invita a participar como *{role}* en la reunión #{round_no}.\n\nEl candidato previo no pudo confirmar dentro del plazo establecido, por lo que su colaboración sería muy valiosa para nuestro club.")
         begin_invite_flow(ctx, new_cand, role, round_no)
         _schedule_invite_timers(ctx, role, new_cand, round_no)
         
@@ -2014,6 +2082,95 @@ def _process_message_router(
 
     current_cid = s.get("club") or infer_user_club(waid, extract_trailing_club_id(body_raw))
     ctx = _CTX[current_cid] if current_cid and current_cid in _CTX else None
+
+    # --------- Flujo de reemplazo cuando alguien deja un cargo -----------------------
+    if awaiting == "replacement_decision":
+        accept_option = ("✅ Aceptar cargo", "Aceptar")
+        reject_option = ("❌ Declinar cargo", "Declinar", "Rechazar")
+
+        wants_accept = matches_option(body_raw_clean, accept_option) or body_norm in ("1", "acepto", "aceptar", "accept", "si", "sí", "ok")
+        wants_reject = matches_option(body_raw_clean, reject_option) or body_norm in ("2", "rechazo", "rechazar", "reject", "no", "cancelar", "cancelo", "declinar")
+
+        if wants_accept:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX[buffer["club"]]
+            role_name = buffer["role"]
+            
+            # Aceptar el cargo
+            accept_msg = handle_accept(club_ctx, waid)
+            send_text(waid, accept_msg)
+
+            # Flujos especiales según el rol
+            role_norm = role_name.lower()
+            st_now = club_ctx.state_store.load()
+            if "evaluador gramatical" in role_norm:
+                set_session(
+                    waid,
+                    awaiting="word_step1_palabra",
+                    buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
+                )
+                send_text(waid, 
+                    "📖 *Envía la palabra del día:*\n\n"
+                    "_💡 Tip: No te preocupes si cometes algún error, después tendrás la oportunidad de revisar y corregir toda la información antes de guardarla._"
+                )
+            elif "toastmaster" in role_norm or "toastmasters de la noche" in role_norm:
+                set_session(
+                    waid,
+                    awaiting="theme_step1_topic",
+                    buffer={"role": role_name, "waid": waid, "club": club_ctx.club_id, "round": st_now["round"]},
+                )
+                send_text(waid, "📝 Envía la temática de la sesión:")
+            else:
+                _resume_after_invite(waid, buffer)
+            return jsonify({"status": "ok"})
+
+        if wants_reject:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX[buffer["club"]]
+            role_name = buffer["role"]
+            
+            # Rechazar el reemplazo
+            send_text(waid, f"Has declinado el cargo de *{role_name}*. Se buscará otro candidato disponible.")
+            
+            # Buscar nuevo candidato automáticamente
+            st = club_ctx.state_store.load()
+            excluded = set(a["waid"] for a in st["accepted"].values())
+            excluded.update(pending_candidates(st))
+            excluded.add(waid)  # Excluir quien rechazó
+            
+            new_cand = choose_candidate_hier(club_ctx, role_name, excluded)
+            
+            if new_cand:
+                st["pending"][role_name] = {
+                    "candidate": new_cand,
+                    "accepted": False,
+                    "nombre": pretty_name(club_ctx, new_cand),
+                    "propuesto_por": "Bot (rechazo de reemplazo)",
+                    "timestamp": __import__("time").time()
+                }
+                club_ctx.state_store.save(st)
+                
+                begin_invite_flow(club_ctx, new_cand, role_name, st["round"])
+                _schedule_invite_timers(club_ctx, role_name, new_cand, st["round"])
+                
+                broadcast_text(club_ctx.admins, f"[{club_ctx.club_id}] Rol *{role_name}* reasignado a {pretty_name(club_ctx, new_cand)} tras rechazo de reemplazo.")
+            else:
+                # No hay más candidatos
+                if role_name in st.get("pending", {}):
+                    del st["pending"][role_name]
+                    club_ctx.state_store.save(st)
+                broadcast_text(club_ctx.admins, f"[{club_ctx.club_id}] ⚠️ Rol *{role_name}* sin candidatos disponibles tras rechazo de reemplazo.")
+            
+            _resume_after_invite(waid, buffer)
+            return jsonify({"status": "ok"})
+
+        if is_interactive:
+            buffer = s.get("buffer", {})
+            club_ctx = _CTX.get(buffer.get("club"))
+            if club_ctx:
+                send_text(waid, "_❗ Opción inválida. Por favor, usa los botones:_ *✅ Aceptar cargo* / *❌ Declinar cargo*")
+                begin_replacement_flow(club_ctx, waid, buffer["role"], buffer["round"], buffer["replaced_by"])
+            return jsonify({"status": "ok"})
 
     # --------- Flujos de invitación (persisten sobre cualquier menú) -------------------
     if awaiting == "invite_decision":
@@ -2709,11 +2866,9 @@ def _process_message_router(
             
             # Notificar
             send_text(waid, f"✅ Has dejado el cargo de *{role}*.\n\n🤖 El bot seleccionó a *{replacement.name}* como reemplazo.")
-            send_text(
-                replacement.waid,
-                f"📧 {pretty_name(club_ctx, waid)} dejó el cargo de *{role}* y el bot te seleccionó como reemplazo.\n\n"
-                f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
-            )
+            
+            # Enviar invitación interactiva al reemplazo
+            begin_replacement_flow(club_ctx, replacement.waid, role, st["round"], pretty_name(club_ctx, waid))
             
             set_session(waid, awaiting=None, buffer=None, mode="member")
             send_member_menu(club_ctx, waid)
@@ -2819,11 +2974,9 @@ def _process_message_router(
         
         # Notificar
         send_text(waid, f"✅ Has dejado el cargo de *{role}*.\n\n👤 Seleccionaste a *{selected_name}* como reemplazo.")
-        send_text(
-            selected_waid,
-            f"📧 {pretty_name(club_ctx, waid)} dejó el cargo de *{role}* y te seleccionó como reemplazo.\n\n"
-            f"👉 Ve al Menú de socio ({club_ctx.club_id}) → «🎯 Mi cargo» para aceptar o rechazar."
-        )
+        
+        # Enviar invitación interactiva al reemplazo
+        begin_replacement_flow(club_ctx, selected_waid, role, st["round"], pretty_name(club_ctx, waid))
         
         set_session(waid, awaiting=None, buffer=None, mode="member")
         send_member_menu(club_ctx, waid)
