@@ -1015,7 +1015,7 @@ def check_and_announce_if_complete(ctx: Ctx) -> None:
         broadcast_text(ctx.admins, f"[{ctx.club_id}] ✅ Todos los cargos aceptados. Confirmaciones programadas para el lunes 3 PM.")
     
     ctx.state_store.save(st)
-    broadcast_text(ctx.all_numbers, f"[{ctx.club_id}] {summary}")
+    broadcast_text(ctx.admins, f"[{ctx.club_id}] {summary}")
 
 
 def who_am_i(ctx: Ctx, waid: str) -> str:
@@ -1611,7 +1611,7 @@ def _process_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
     if not unconfirmed:
         # Todos confirmaron, generar PDF
         log.info("Todos confirmaron, generando PDF")
-        _generate_and_send_pdf(ctx, round_no)
+        # _generate_and_send_pdf(ctx, round_no)
         return
     
     # Buscar reemplazos para los que no confirmaron
@@ -1646,7 +1646,8 @@ def _process_confirmation_deadline(ctx: Ctx, round_no: int) -> None:
     # Verificar si ahora todos están confirmados
     all_confirmed = all(c.get("confirmed") for c in st.get("confirmations", {}).values())
     if all_confirmed:
-        _generate_and_send_pdf(ctx, round_no)
+        # _generate_and_send_pdf(ctx, round_no)
+        pass
 
 
 def _generate_and_send_pdf(ctx: Ctx, round_no: int) -> None:
@@ -4411,7 +4412,7 @@ def _process_message_router(
                 # Verificar si todos confirmaron
                 all_confirmed = all(c.get("confirmed") for c in confirmations.values())
                 if all_confirmed:
-                    broadcast_text(confirmation_ctx.admins, f"[{cid}] ✅ Todos los socios confirmaron su asistencia. Generando programa...")
+                    # broadcast_text(confirmation_ctx.admins, f"[{cid}] ✅ Todos los socios confirmaron su asistencia. Generando programa...")
                     _generate_and_send_pdf(confirmation_ctx, st.get("round", 0))
                 else:
                     pending = sum(1 for c in confirmations.values() if not c.get("confirmed"))
@@ -4455,7 +4456,7 @@ def _process_message_router(
                 st = test_ctx.state_store.load()
                 round_no = st.get("round", 0)
                 
-                send_text(waid, f"📄 Generando PDF de prueba para ronda #{round_no}...")
+                # send_text(waid, f"📄 Generando PDF de prueba para ronda #{round_no}...")
                 _generate_and_send_pdf(test_ctx, round_no)
                 return jsonify({"status": "ok"})
         send_text(waid, "❌ No tienes permisos de administrador.")
