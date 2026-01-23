@@ -1274,7 +1274,7 @@ def send_admin_menu(ctx: Ctx, waid: str) -> dict:
 
 def _get_role_timeout_hours(role: str) -> float:
     """Retorna el tiempo límite en horas para responder según el rol."""
-    return 12.0  # 12 horas para todos los roles
+    return 24.0  # 24 horas para todos los roles
 
 
 def invite_menu_parts(ctx: Ctx, role: str, round_no: int) -> Tuple[str, List[Tuple[str, str]], str]:
@@ -1372,7 +1372,7 @@ def _schedule_invite_timers(ctx: Ctx, role: str, waid: str, round_no: int) -> No
     timeout_hours = _get_role_timeout_hours(role)
     timeout_seconds = timeout_hours * 3600
     
-    # Sistema de notificaciones para 12 horas:
+    # Sistema de notificaciones para 24 horas:
     # - Recordatorio cuando falten 2 horas
     # - Auto-rechazo al vencer el plazo
     Timer(timeout_seconds - 7200, _send_reminder, args=(ctx, role, waid, round_no, "dos_horas")).start()
@@ -1476,7 +1476,7 @@ def _auto_reject_invite(ctx: Ctx, role: str, waid: str, round_no: int) -> None:
     ctx.state_store.save(st)
     
     # Notificar al socio con mensaje profesional
-    send_text(waid, f"⏰ *Plazo vencido*\n\nEstimado/a socio/a, el tiempo límite de 12 horas para confirmar su participación como *{role}* ha concluido. \n\nEste cargo será reasignado a otro miembro del club. Agradecemos su comprensión.")
+    send_text(waid, f"⏰ *Plazo vencido*\n\nEstimado/a socio/a, el tiempo límite de 24 horas para confirmar su participación como *{role}* ha concluido. \n\nEste cargo será reasignado a otro miembro del club. Agradecemos su comprensión.")
     
     # Buscar nuevo candidato
     excluded = set(a["waid"] for a in st["accepted"].values())
@@ -2041,12 +2041,12 @@ def _revoke_incompatible_roles(ctx: Ctx, waid: str) -> List[str]:
 
 def _check_evaluator_timeouts():
     """
-    Verifica si hay solicitudes de evaluador que excedieron las 2 horas sin respuesta.
+    Verifica si hay solicitudes de evaluador que excedieron las 24 horas sin respuesta.
     Notifica al solicitante y limpia la sesión del evaluador.
     """
     import time
     current_time = int(time.time())
-    timeout_seconds = 2 * 60 * 60  # 2 horas
+    timeout_seconds = 24 * 60 * 60  # 24 horas
     
     for club_id, ctx in _CTX.items():
         st = ctx.state_store.load()
@@ -2073,7 +2073,7 @@ def _check_evaluator_timeouts():
                 # Notificar al solicitante
                 if solicitante_waid:
                     msg = (
-                        f"⏰ {evaluador_nombre} no respondió en las 2 horas.\n\n"
+                        f"⏰ {evaluador_nombre} no respondió en las 24 horas.\n\n"
                         "Por favor, elige otro evaluador desde el menú de miembro."
                     )
                     send_text(solicitante_waid, msg)
@@ -3491,7 +3491,7 @@ def _process_message_router(
                     f"📋 Proyecto: {buffer['proyecto']}\n"
                     f"📢 Título: {buffer['titulo']}\n"
                     f"⏱️ Duración: {buffer['duracion_min']}-{buffer['duracion_max']} minutos\n\n"
-                    f"¿Puedes evaluar este discurso? Tienes 2 horas para responder."
+                    f"¿Puedes evaluar este discurso? Tienes 24 horas para responder."
                 )
                 send_text(evaluador_waid, solicitud_msg)
                 
@@ -3506,7 +3506,7 @@ def _process_message_router(
                 # Enviar menú con botones
                 send_menu_with_quick_replies(evaluador_waid, "Responde:", ["✅ Sí, puedo evaluar", "❌ No puedo"])
                 
-                msg += f"\n\n📧 Se envió solicitud a {buffer['evaluador']}. Tiene 2 horas para confirmar."
+                msg += f"\n\n📧 Se envió solicitud a {buffer['evaluador']}. Tiene 24 horas para confirmar."
             
             send_text(waid, msg)
             set_session(waid, awaiting=None, buffer=None, mode="root")
