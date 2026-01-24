@@ -1,50 +1,50 @@
 {
   "members": [
     {
-      "name": "Paco",
-      "waid": "5212293655442",
+      "name": "Alfredo Sanchez",
+      "waid": "5218122597597",
       "is_guest": false,
       "level": 5,
       "roles_done": []
     },
     {
-      "name": "Rodrigo",
-      "waid": "5212299121271",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": []
-    },
-    {
-      "name": "Arturo",
-      "waid": "5212291394351",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": []
-    },
-    {
-      "name": "Gabino",
-      "waid": "5212295495817",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": []
-    },
-    {
-      "name": "Diana",
-      "waid": "5212283583336",
-      "is_guest": false,
-      "level": 5,
-      "roles_done": []
-    },
-    {
-      "name": "Jafet",
+      "name": "Jafet Martinez",
       "waid": "5212299066499",
       "is_guest": false,
       "level": 5,
       "roles_done": []
     },
     {
-      "name": "Alberto",
-      "waid": "5212291251946",
+      "name": "Rodri Toastmasters",
+      "waid": "5212299121271",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Arturo Moreno",
+      "waid": "5212291394351",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Diana Pale",
+      "waid": "5212283583336",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Gabino Gómez",
+      "waid": "5212295495817",
+      "is_guest": false,
+      "level": 5,
+      "roles_done": []
+    },
+    {
+      "name": "Paco Cisneros",
+      "waid": "5212293655442",
       "is_guest": false,
       "level": 5,
       "roles_done": []
